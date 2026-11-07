@@ -2,6 +2,8 @@
 
 以生活短文學習日語的 Hexo 網站，搭配本專案自製的 **Jasdoit** 主題。暖白紙感與墨綠配色，將主要空間留給日文閱讀、繁中翻譯、單字與文法解析。
 
+所有 AI 產生的專案說明、研究與預覽資料集中於 `aidd-docs/`。目錄分工與首次發布方式請見 [GitHub Pages 說明](github-pages.md)。學習文章屬於正式網站內容，仍放在 `source/_posts/`。
+
 ## 預覽與建置
 
 需要 Node.js 22 以上。首次使用：
@@ -11,7 +13,7 @@ npm ci
 npm run preview
 ```
 
-開啟終端機顯示的本機網址，預設為 `http://127.0.0.1:4000/`。
+開啟終端機顯示的本機網址，預設為 `http://127.0.0.1:4000/jasdoit-daily/`。
 
 產生網站：
 
@@ -19,7 +21,7 @@ npm run preview
 npm run build
 ```
 
-網站輸出到 `public/`。正式上線前，請將 `_config.yml` 的 `url` 改成實際網站網址；若放在子目錄，也須調整 `root`。本專案目前提供本機預覽與靜態輸出。
+網站輸出到 `public/`，GitHub Actions 只將此目錄發布到 GitHub Pages。正式網址設定為 `https://xfalcons.github.io/jasdoit-daily/`，站台根路徑為 `/jasdoit-daily/`。首次發布步驟請見 [GitHub Pages 部署說明](github-pages.md)。
 
 本次設計的獨立 HTML 快照可直接以瀏覽器開啟，不需要啟動伺服器：
 
@@ -43,7 +45,7 @@ npm run build
 
 ## 撰寫文章
 
-文章放在 `source/_posts/`。現有範例：[感恩主題文章](source/_posts/gratitude-in-daily-life.md)，包含日文正文、中譯、8 個單字與 4 個文法。
+文章放在 `source/_posts/`。現有範例：[感恩主題文章](../source/_posts/gratitude-in-daily-life.md)，包含日文正文、中譯、8 個單字與 4 個文法。
 
 在 YAML front matter 加上以下欄位，可啟用學習工具與簡短標題：
 
@@ -70,7 +72,7 @@ level: N3–N1
 
 ## 主題選型與維護
 
-[主題比較研究](docs/theme-research.md) 比較 NexT Pisces、Stellar、Fluid 與自製主題。若偏好長期使用成熟現成主題，首選 NexT Pisces；本次自製主題則將標音、中譯與閱讀操作整合到同一版面。
+[主題比較研究](theme-research.md) 比較 NexT Pisces、Stellar、Fluid 與自製主題。若偏好長期使用成熟現成主題，首選 NexT Pisces；本次自製主題則將標音、中譯與閱讀操作整合到同一版面。
 
 - 品牌名稱與標語：`themes/jasdoit/_config.yml`
 - 配色、字型與行距：`themes/jasdoit/source/css/learning.css`

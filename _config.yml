@@ -4,9 +4,11 @@ description: 透過生活化的日文短文、漢字標音、繁體中文翻譯�
 author: Jasdoit Daily
 language: zh-TW
 timezone: Asia/Taipei
-# 正式上線時，請換成自己的網址；本機預覽使用下方 npm 指令即可。
-url: https://example.com
-root: /
+# GitHub Pages 專案型網站：網址與根路徑均保留儲存庫名稱。
+url: https://xfalcons.github.io/jasdoit-daily
+root: /jasdoit-daily/
+source_dir: source
+public_dir: public
 permalink: :title/
 theme: jasdoit
 default_layout: post
