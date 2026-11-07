@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="<%= page.description || config.description %>">
+  <meta name="theme-color" content="#f8f6f0">
+  <title><%= page.title ? page.title + ' · ' : '' %><%= config.title %></title>
+  <link rel="icon" href="<%= url_for('/images/favicon.svg') %>" type="image/svg+xml">
+  <%- css('/css/learning.css') %>
+  <script src="<%= url_for('/js/learning.js') %>" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳至主要內容</a>
+  <header class="site-header">
+    <a class="brand" href="<%= url_for('/') %>" aria-label="日語日常首頁">
+      <span class="brand-mark" lang="ja" aria-hidden="true">あ</span>
+      <span><strong><%= theme.brand %></strong><small><%= theme.brand_caption %></small></span>
+    </a>
+    <nav aria-label="主要導覽">
+      <a href="<%= url_for('/') %>" <%- is_home() ? 'aria-current="page"' : '' %>>閱讀練習</a>
+      <a href="<%= url_for('/') %>#learning-method">學習方式 <span aria-hidden="true">↗</span></a>
+    </nav>
+    <span class="header-note">一篇短文，一點進步。</span>
+  </header>
+  <main id="main"><%- body %></main>
+  <footer class="site-footer"><a href="<%= url_for('/') %>"><%= theme.brand %></a><span>不用急，讀懂一點就是進步。</span><small>以 Hexo 製作 · Jasdoit 主題</small></footer>
+</body>
+</html>

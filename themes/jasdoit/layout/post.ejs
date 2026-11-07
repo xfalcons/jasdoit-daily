@@ -1,0 +1,30 @@
+<div class="post-shell">
+  <a class="back-link" href="<%= url_for('/') %>"><span aria-hidden="true">←</span> 回到閱讀練習</a>
+  <header class="post-header">
+    <p class="eyebrow">A LITTLE JAPANESE, EVERY DAY</p>
+    <div class="lesson-meta"><span class="level-label"><%= page.level || '日文閱讀' %></span><time datetime="<%= date_xml(page.date) %>"><%= date(page.date, 'YYYY.MM.DD') %></time></div>
+    <h1><%= page.reading_title || page.title %></h1>
+    <p><%= page.description || theme.tagline %></p>
+  </header>
+  <div class="post-grid">
+    <aside class="reading-sidebar" aria-label="閱讀輔助">
+      <div class="sidebar-inner">
+        <p class="eyebrow">這一篇，慢慢讀</p>
+        <nav aria-label="文章目錄"><%- toc(page.content, {list_number: false, max_depth: 2}) %></nav>
+        <div class="sidebar-tip"><span aria-hidden="true">あ</span><p>先試著讀日文，<br>再打開翻譯確認。<br>每讀一次，都會更熟悉。</p></div>
+      </div>
+    </aside>
+    <div class="reading-main">
+      <% if (page.learning) { %>
+      <div class="reading-tools" aria-label="閱讀設定" hidden>
+        <span class="tools-label">閱讀設定</span>
+        <button type="button" data-toggle="furigana" aria-pressed="true">漢字標音 <span data-state>開</span></button>
+        <button type="button" data-toggle="translation" aria-pressed="true">中文翻譯 <span data-state>開</span></button>
+        <label class="font-control">字級 <select id="reading-font"><option value="normal">標準</option><option value="large">加大</option><option value="larger">更大</option></select></label>
+      </div>
+      <% } %>
+      <article class="article-content" data-learning="<%= !!page.learning %>"><%- page.content %></article>
+      <div class="reading-end"><span aria-hidden="true">✦</span><p>今天也多讀懂了一點。</p><a href="#main">回到文章開頭 ↑</a></div>
+    </div>
+  </div>
+</div>

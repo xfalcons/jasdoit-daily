@@ -1,0 +1,24 @@
+{
+  "name": "jasdoit-daily",
+  "version": "1.0.0",
+  "private": true,
+  "description": "日語日常：以生活短文學習日文",
+  "engines": {
+    "node": ">=22"
+  },
+  "hexo": {
+    "version": "8.1.2"
+  },
+  "scripts": {
+    "build": "hexo generate",
+    "preview": "hexo server --ip 127.0.0.1",
+    "clean": "hexo clean"
+  },
+  "dependencies": {
+    "hexo": "^8.1.1",
+    "hexo-generator-index": "^4.0.0",
+    "hexo-renderer-ejs": "^2.0.0",
+    "hexo-renderer-marked": "^7.0.1",
+    "hexo-server": "^3.0.0"
+  }
+}

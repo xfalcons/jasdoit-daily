@@ -1,0 +1,22 @@
+title: 日語日常
+subtitle: 每天讀一點，讓日語走進生活。
+description: 透過生活化的日文短文、漢字標音、繁體中文翻譯與單字文法解析，慢慢累積日語實力。
+author: Jasdoit Daily
+language: zh-TW
+timezone: Asia/Taipei
+# 正式上線時，請換成自己的網址；本機預覽使用下方 npm 指令即可。
+url: https://example.com
+root: /
+permalink: :title/
+theme: jasdoit
+default_layout: post
+new_post_name: :title.md
+future: false
+index_generator:
+  path: ""
+  per_page: 10
+  order_by: -date
+highlight:
+  enable: false
+prismjs:
+  enable: false

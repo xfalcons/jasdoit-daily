@@ -1,0 +1,43 @@
+<section class="home-hero">
+  <div class="hero-copy">
+    <p class="eyebrow"><span class="tiny-dot"></span> 給喜歡慢慢學習的你</p>
+    <h1>把日語，<br>慢慢讀成<span class="ink-underline">生活。</span></h1>
+    <p class="hero-description">從一篇貼近日常的短文開始。<br>讀懂一句話，也多認識一點生活裡的日語。</p>
+    <% if (page.posts.length) { const latest = page.posts.first(); %>
+      <a class="primary-link" href="<%= url_for(latest.path) %>">開始今天的閱讀 <span aria-hidden="true">↗</span></a>
+    <% } %>
+    <p class="hero-footnote">漢字標音 <span>／</span> 中日對照 <span>／</span> 單字與文法</p>
+  </div>
+  <div class="reading-preview" aria-label="日文閱讀示意">
+    <div class="preview-topline"><span>日常裡的一句話</span><span class="stamp" lang="ja"><ruby>読<rt>よ</rt></ruby>む</span></div>
+    <p class="preview-japanese" lang="ja">「ありがとう」を、<br>ちゃんと<ruby>伝<rt>つた</rt></ruby>える。</p>
+    <p class="preview-translation">好好地把「謝謝」說出口。</p>
+    <div class="preview-divider"></div>
+    <p class="preview-note">一句簡單的謝謝，<br>也能讓平凡的日子多一點溫暖。</p>
+    <span class="preview-edition">A LITTLE JAPANESE, EVERY DAY.</span>
+    <span class="paper-tab" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="reading-library" aria-labelledby="library-heading">
+  <div class="section-heading"><div><p class="eyebrow">THE READING ROOM</p><h2 id="library-heading">今天，讀點什麼？</h2></div><span><%= site.posts.length %> 篇閱讀筆記</span></div>
+  <% page.posts.each(function(post) { %>
+    <article class="lesson-row">
+      <div class="lesson-number" lang="ja" aria-hidden="true"><span><ruby>読<rt>よ</rt></ruby>む</span><small>READ</small></div>
+      <div class="lesson-summary">
+        <div class="lesson-meta"><span class="level-label"><%= post.level || '日文閱讀' %></span><time datetime="<%= date_xml(post.date) %>"><%= date(post.date, 'YYYY.MM.DD') %></time></div>
+        <h3><a href="<%= url_for(post.path) %>"><%= post.reading_title || post.title %></a></h3>
+        <p><%= post.description || truncate(strip_html(post.excerpt || post.content), {length: 100}) %></p>
+        <span class="lesson-feature">生活短文 <span>·</span> 漢字標音 <span>·</span> 單字與文法解析</span>
+      </div>
+      <a class="lesson-arrow" href="<%= url_for(post.path) %>" aria-label="閱讀：<%= post.reading_title || post.title %>">↗</a>
+    </article>
+  <% }); %>
+  <% if (!page.posts.length) { %><p>第一篇閱讀筆記，準備中。</p><% } %>
+  <% if (page.total > 1) { %><nav class="pagination" aria-label="文章分頁"><%- paginator({prev_text: '上一頁', next_text: '下一頁'}) %></nav><% } %>
+</section>
+
+<section class="learning-method" id="learning-method" aria-labelledby="method-heading">
+  <div><p class="eyebrow">MAKE IT A SMALL HABIT</p><h2 id="method-heading">不用一次記住全部。</h2><p>讀一遍，再多懂一點。<br>用適合自己的步調，把日語留在生活裡。</p></div>
+  <ol><li><span>01</span><div><h3>先讀日文</h3><p>保留標音，試著抓住文章的意思。</p></div></li><li><span>02</span><div><h3>對照著理解</h3><p>搭配中文翻譯，認識單字與文法。</p></div></li><li><span>03</span><div><h3>再讀一次</h3><p>收起標音和中譯，看看自己讀懂多少。</p></div></li></ol>
+</section>
