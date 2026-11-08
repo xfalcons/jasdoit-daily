@@ -16,7 +16,7 @@
 前置條件（沒有 NO-GO，只有先做/後做）：
 1. [ ] **手動 loop 跑滿 14 天（Day 1–14，第一個 gate）** — 不寫引擎 code（網站與文件屬發布基礎建設，不在此限）。每天早上：在 repo 內以 `AGENTS-teacher.md` persona 生成 1 篇當日主題短文（主題照 `aidd-docs/references/japanese-theme-rotation.md`；手動流程見 agent-loop-design.md §7）→ 免費 TTS 出音檔 → 五步驟走完 → 拍下抄寫頁＋3 個單字卡，貼文標「Day X/100」。全程 ≤30 分鐘。14 天後三問：(a) 我真的每天會做嗎；(b) 內容我自己想讀嗎；(c) 哪種分享格式有人互動。**任一不成立 → 不蓋引擎**；全部成立 → 14 篇真實樣本即引擎規格與 gold sample 來源。
 2. [ ] **時間盤點** — 引擎 56–82 h ＋ app 44–64 h ≈ 100–146 h ESTIMATE（v4 儲存簡化、圖卡暫緩後）。引擎期落在 Day 15–50、app 期落在 Day 50–100，**期間每日五步驟照常進行** — 100 天練習不等人、不中斷，工程在練習進行中逐步接管（手動 → 引擎 → app）。
-3. [ ] **LLM bake-off（1 天，與手動 loop 並行）** — 10 項真實任務（含「生成 N3 勵志短文＋zh-TW 譯文」與「verifier 挑錯」兩種角色）比較 gpt-6-luna vs Claude Haiku 5.5 vs DeepSeek V4 Flash；選定首選＋備援，全部透過 gateway 抽象層。
+3. [ ] **LLM bake-off（1 天，與手動 loop 並行）** — 10 項真實任務（含「生成 N3 勵志短文＋zh-TW 譯文」與「verifier 挑錯」兩種角色）比較 gpt-6-luna vs Claude Haiku 5.5 vs DeepSeek-V4.1-Flash（候選以 gateway 實際可達為準，V4 Flash 已於 2026-09 retired）；選定首選＋備援，全部透過 gateway 抽象層。
 4. [ ] **版本鎖定（1 天，與手動 loop 並行）** — lockfile 鎖定 fugashi ＋ unidic-lite 確切版本；30 篇樣本 tokenization 目視檢查。
 5. [ ] **gold sample 50 題（與手動 loop 並行）** — 自建讀音/QA 案例對字典核對，作為驗證閘門回歸基準。
 
@@ -153,7 +153,7 @@ app 是五步驟的引導器，不是手寫辨識器。與發布共用同一份�
 | 讀音 | token 讀音 → JMdict 交叉檢查 → pykakasi 備援；專有名詞標記 | pykakasi 單一來源（會誤讀人名） |
 | 字典層 | JMdict（CC BY-SA 4.0；分享附姓名標示） | RAG/vector store（pgvector 保留日後） |
 | LLM | 便宜等級 behind gateway；生成與 verifier 不同供應商 | GPT-4o 等級（過貴） |
-| TTS（引擎期） | Azure Neural ja-JP，預生成、快取、單一速度；免費額度內 $0 | 自架 Style-Bert-VITS2；多段速度（shadowing 實測需要再重啟） |
+| TTS（引擎期） | Azure Neural ja-JP，預生成、快取、單一速度；免費額度內 $0 | 自架 Style-Bert-VITS2；Kokoro-82M（2026-11-08 實測日語品質不佳，棄用）；多段速度（shadowing 實測需要再重啟） |
 | STT/發音評分（Day 100 後） | gpt-transcribe（`language="ja"`）／Azure 評估 word-level | 自架 Whisper |
 | 儲存 | git（repo 即內容庫）＋ R2（音檔）；Postgres 延至 Phase 2 | 第三套儲存；過早分庫 |
 | Loop runtime | GitHub Actions scheduled workflow（jasdoit-daily repo 內） | 自架 worker/queue |

@@ -69,7 +69,7 @@ description: "..."
 | 2 | 生成 | `AGENTS-teacher.md` persona ＋ 主題 row ＋ 難度/長度約束 ＋ §1 模板；預設 1 篇/天（批次參數保留，上限寫死） | draft markdown | 重試 1 次，再敗 FAIL |
 | 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧 → FLAG |
 | 4 | 驗證閘門 | rule QA ＋ 跨模型 verifier ＋ gold sample 回歸 | PASS／FLAG／FAIL | 判準見 §3 |
-| 5 | TTS | 剝掉 ruby 的純文字 → Azure Neural ja-JP → mp3 → R2 `day-XXX.mp3` | `audio_url` | 重試 1 次；再敗則文先出（`audio_url` 留空＋FLAG），音後補 |
+| 5 | TTS | 讀音鎖定文字（ruby 的 `<rt>` 讀音取代漢字餵入；Azure SSML `<sub>` 亦可，勿剝 ruby 餵裸漢字 — 2026-11-08 實測 edge-tts 將 `百日間` 誤讀）→ Azure Neural ja-JP → mp3 → R2 `day-XXX.mp3`；未標註漢字清單印出人工掃 | `audio_url` | 重試 1 次；再敗則文先出（`audio_url` 留空＋FLAG），音後補 |
 | 6 | 入庫＝發布 | PASS → commit＋push main（PAT）；FLAG → branch＋PR；FAIL → 不 commit | git commit／PR | 見 §4 §5 |
 | 7 | 記錄 | cost、latency、verdict、FLAG 清單 append 進 `data/loop-log.jsonl`；失敗用 Actions email 通知 | log 一行 | — |
 
