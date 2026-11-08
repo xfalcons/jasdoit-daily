@@ -4,3 +4,4 @@ db.json
 .DS_Store
 .hexo*
 audio-local/
+__pycache__/
