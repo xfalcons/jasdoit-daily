@@ -24,7 +24,7 @@
     }
   });
 
-  let settings = { furigana: true, translation: true, font: "normal" };
+  let settings = { furigana: false, translation: false, font: "normal" };
   try {
     const saved = JSON.parse(localStorage.getItem("jasdoit-reading") || "{}");
     if (typeof saved.furigana === "boolean") settings.furigana = saved.furigana;
