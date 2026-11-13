@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # 06:23 Taipei daily: rebuild so future-dated posts (06:00) go live on
+    # their own morning even when pushed the night before
+    - cron: '23 22 * * *'
 
 permissions:
   contents: read
