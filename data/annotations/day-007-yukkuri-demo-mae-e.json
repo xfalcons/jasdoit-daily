@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-007-yukkuri-demo-mae-e",
+  "day": 7,
+  "post_sha256": "6d5e8fbb7badc5fde6726cfdcca0438e9408a09bf10845d2b8fccc409d89e708",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 77,
+    "regions": 77,
+    "ok": 77,
+    "ok_contextual": 74,
+    "ok_attested": 3,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

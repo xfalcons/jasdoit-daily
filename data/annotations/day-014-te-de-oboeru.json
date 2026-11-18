@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-014-te-de-oboeru",
+  "day": 14,
+  "post_sha256": "5c1ca2feb447ffc420bbab6e5dd13bfa9459f1d1355670b799c4999f87b1263b",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 89,
+    "regions": 89,
+    "ok": 89,
+    "ok_contextual": 88,
+    "ok_attested": 1,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

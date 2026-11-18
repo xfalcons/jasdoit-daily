@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-010-tooka-me-no-arigatou",
+  "day": 10,
+  "post_sha256": "7e6b588561f7e167db7c20b4bc28a1cc3e9c7885a4d41f07feee2a8042f459a2",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 87,
+    "regions": 81,
+    "ok": 81,
+    "ok_contextual": 75,
+    "ok_attested": 6,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

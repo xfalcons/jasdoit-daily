@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-011-maisa-no-gishiki",
+  "day": 11,
+  "post_sha256": "882c977a06faf0d6b35984e2ca596fed516eb606c62f658c25b018c1468b7463",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 93,
+    "regions": 89,
+    "ok": 89,
+    "ok_contextual": 83,
+    "ok_attested": 6,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

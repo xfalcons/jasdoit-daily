@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-005-kanpeki-yori-tsuzukeru",
+  "day": 5,
+  "post_sha256": "343f931c57dbc17403e2127e5ad641290912db851af77cf8fd820c28bee61109",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 82,
+    "regions": 82,
+    "ok": 82,
+    "ok_contextual": 78,
+    "ok_attested": 4,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

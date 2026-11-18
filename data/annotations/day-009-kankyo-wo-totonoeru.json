@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-009-kankyo-wo-totonoeru",
+  "day": 9,
+  "post_sha256": "58fec1c0798af1232d489743531c00c8ee0dfefdd5437970416176027e3b3960",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 85,
+    "regions": 85,
+    "ok": 85,
+    "ok_contextual": 82,
+    "ok_attested": 3,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

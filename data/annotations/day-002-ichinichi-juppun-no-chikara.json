@@ -1,0 +1,45 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-002-ichinichi-juppun-no-chikara",
+  "day": 2,
+  "post_sha256": "a248517efb406854e81471afc6ef863aa9c2549ff0febb8d925de909d419743b",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 72,
+    "regions": 69,
+    "ok": 68,
+    "ok_contextual": 60,
+    "ok_attested": 8,
+    "low_confidence": 1,
+    "divergent": 0
+  },
+  "findings": [
+    {
+      "line": 39,
+      "col": 46,
+      "surface": "四日目",
+      "rt": "よっかめ",
+      "verdict": "low_confidence",
+      "reason": "pykakasi_only",
+      "evidence": {
+        "assembled": "よっかめ",
+        "unidic": "ヨンカメ",
+        "tokens": [
+          "四",
+          "日",
+          "目"
+        ],
+        "jmdict": [],
+        "pykakasi": "ヨッカメ"
+      }
+    }
+  ]
+}

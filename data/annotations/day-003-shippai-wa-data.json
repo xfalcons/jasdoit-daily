@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-003-shippai-wa-data",
+  "day": 3,
+  "post_sha256": "2b26aa395975189a8017ed597592198ee1b572036ec770860105d2af2a96e02a",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 83,
+    "regions": 76,
+    "ok": 76,
+    "ok_contextual": 72,
+    "ok_attested": 4,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

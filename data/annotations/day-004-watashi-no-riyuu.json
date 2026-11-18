@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-004-watashi-no-riyuu",
+  "day": 4,
+  "post_sha256": "71aadff46929f644b8a3a88e27a63e022b65526ca5308d738d22ac90c585a70f",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 81,
+    "regions": 78,
+    "ok": 78,
+    "ok_contextual": 77,
+    "ok_attested": 1,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

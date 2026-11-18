@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-008-kotoba-no-ondo",
+  "day": 8,
+  "post_sha256": "fbb666f8c5dd72d4c334e7cdefb23f132e506f6b93927229537c82cc8184e967",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 80,
+    "regions": 80,
+    "ok": 80,
+    "ok_contextual": 75,
+    "ok_attested": 5,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

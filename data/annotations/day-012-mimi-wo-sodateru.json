@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-012-mimi-wo-sodateru",
+  "day": 12,
+  "post_sha256": "384b5b6e0bdd71793e9945c8dd3b981b786982a5b481adcbaa21cb5f8446583e",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 92,
+    "regions": 86,
+    "ok": 86,
+    "ok_contextual": 82,
+    "ok_attested": 4,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}

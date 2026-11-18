@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-006-mienai-seichou",
+  "day": 6,
+  "post_sha256": "ea11ab4ecb944c7fc0455cb60a287a76a0acb55409f3d7be735a2585df7d9d7e",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 85,
+    "regions": 82,
+    "ok": 82,
+    "ok_contextual": 79,
+    "ok_attested": 3,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
