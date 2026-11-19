@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-016-junbi-ga-totonowanakutemo",
+  "day": 16,
+  "post_sha256": "0a60537ced7cfa09480c2ee5e08d3a06e2412b127c8b509f491ab64dbc1ef552",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 86,
+    "regions": 86,
+    "ok": 86,
+    "ok_contextual": 82,
+    "ok_attested": 4,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
