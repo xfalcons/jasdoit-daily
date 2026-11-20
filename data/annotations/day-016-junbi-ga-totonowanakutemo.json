@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-016-junbi-ga-totonowanakutemo",
   "day": 16,
-  "post_sha256": "0a60537ced7cfa09480c2ee5e08d3a06e2412b127c8b509f491ab64dbc1ef552",
+  "post_sha256": "5f14f74f0c7fe97159845c8b8267f5ead03c401596a606403f2e80f31b561515",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",
