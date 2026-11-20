@@ -30,18 +30,19 @@ with this interpreter, so the invocation needs the stage-3 packages.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import IntEnum
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 RUBY_RE = re.compile(r"<ruby>(?P<surf>.*?)<rp>.*?</rp><rt>(?P<rt>.*?)</rt><rp>.*?</rp></ruby>")
 RP_RE = re.compile(r"<rp>.*?</rp>")
@@ -54,7 +55,9 @@ MORE_MARKER = "<!-- more -->"
 THEME_RE = re.compile(r"Day\s*1\s*=\s*(\d{4})-(\d{2})-(\d{2})")
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 LIST_LINE_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
-FENCE_RE = re.compile(r"^\s*(```|~~~)")
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+FENCE_RUN_RE = re.compile(r"^ {0,3}(`+|~+)")
+HEADING_LINE_RE = re.compile(r"^#{1,6}\s")
 PROMPT_RE = re.compile(r"^\d+\.\s")
 
 REQUIRED_EXTERNAL = ["cross_model", "n3_vocabulary"]
@@ -158,13 +161,25 @@ class Post:
     day: int
     raw: bytes
     text: str
-    lines: list  # body lines after front matter
+    lines: list  # body lines after front matter, split on \n only
     body_start: int  # 0-based index of lines[0] in the whole file, for absolute numbering
     scalars: dict
+    fm_issues: list = field(default_factory=list)
+
+
+def front_matter_value_issue(value: str):
+    """Narrow YAML sanity for one consumed scalar; not a YAML parser."""
+    if value[:1] in ("\"", "'") and (len(value) < 2 or not value.endswith(value[0])):
+        return "unbalanced quotes"
+    if value[:1] == "[" and not value.endswith("]"):
+        return "unclosed flow sequence"
+    if value[:1] == "{" and not value.endswith("}"):
+        return "unclosed flow mapping"
+    return None
 
 
 def parse_front_matter(text: str) -> tuple:
-    lines = text.splitlines()
+    lines = text.split("\n")
     if not lines or lines[0].strip() != "---":
         raise ValueError("no opening --- for front-matter")
     try:
@@ -173,27 +188,39 @@ def parse_front_matter(text: str) -> tuple:
         raise ValueError("no closing --- for front-matter")
     key_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
     scalars: dict = {}
-    for line in lines[1:fm_end]:
+    issues: list = []
+    for no, line in enumerate(lines[1:fm_end], start=2):
         m = key_re.match(line)
         if not m:
+            if ":" in line:
+                issues.append(f"L{no}: colon line is not a key: value pair: {line.strip()[:60]!r}")
             continue
         key, value = m.group(1), m.group(2).strip()
         if key not in CONSUMED_FIELDS:
             continue
         if key in scalars:
             raise ValueError(f"duplicate front-matter key: {key}")
+        problem = front_matter_value_issue(value)
+        if problem:
+            issues.append(f"L{no}: {key}: {problem}")
         scalars[key] = value.strip("\"'")
-    return scalars, fm_end + 1
+    return scalars, fm_end + 1, issues
 
 
 def load_post(path: Path) -> Post:
-    raw = path.read_bytes()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ExecutionError(f"cannot read post {path}: {exc}")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise UsageError(f"{path}: not UTF-8: {exc}")
+    # The publishing side treats \n as the only line break; normalize the
+    # other two spellings so U+2028 and friends cannot fabricate structure.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     try:
-        scalars, body_start = parse_front_matter(text)
+        scalars, body_start, fm_issues = parse_front_matter(text)
     except ValueError as exc:
         raise UsageError(f"{path}: {exc}")
     if scalars.get("kind") != "daily":
@@ -208,14 +235,15 @@ def load_post(path: Path) -> Post:
         day=int(m.group(1)),
         raw=raw,
         text=text,
-        lines=text.splitlines()[body_start:],
+        lines=text.split("\n")[body_start:],
         body_start=body_start,
         scalars=scalars,
+        fm_issues=fm_issues,
     )
 
 
 def contract_issues(post: Post, anchor: date) -> tuple:
-    issues = []
+    issues = [ev("observation", d) for d in post.fm_issues]
     day = None
 
     def mismatch(field, expected, observed):
@@ -253,9 +281,9 @@ def contract_issues(post: Post, anchor: date) -> tuple:
         phase = int(raw_phase)
     except (TypeError, ValueError):
         phase = None
-    if phase is None or phase < 1:
-        issues.append(ev("observation", f"phase: expected positive integer, observed {raw_phase!r}",
-                         field="phase", expected="positive integer", observed=raw_phase))
+    if phase is None or not 1 <= phase <= 10:
+        issues.append(ev("observation", f"phase: expected integer 1-10, observed {raw_phase!r}",
+                         field="phase", expected="integer 1-10", observed=raw_phase))
 
     level = scalars.get("level")
     if day is not None and day <= 30:
@@ -284,12 +312,101 @@ def contract_issues(post: Post, anchor: date) -> tuple:
 # --- sections, blocks, spans -------------------------------------------------
 
 
+class SourceLine(NamedTuple):
+    no: int      # absolute 1-based line number
+    text: str
+    hidden: str  # "" when rendered; "fence" or "comment" when the site hides it
+    quoted: bool # blockquote line or lazy continuation of one
+
+
+def scan_source_lines(lines, offset: int = 0) -> list:
+    """One pass of Markdown block context per line.
+
+    A fence opens on a run of 3+ backticks or tildes and closes only on an
+    equal-or-longer run of the same marker character. An HTML comment hides
+    lines from its <!-- to the line containing -->. A nonblank line after a
+    blockquote line continues that quote without repeating > (lazy
+    continuation). Everything downstream reads visibility from this scan
+    instead of re-deriving it."""
+    out = []
+    fence = None  # (marker char, opening run length)
+    comment = False
+    quoting = False
+    for idx, text in enumerate(lines):
+        no = offset + idx + 1
+        if fence is not None:
+            m = FENCE_RUN_RE.match(text)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
+                fence = None
+            quoting = False
+            out.append(SourceLine(no, text, "fence", False))
+            continue
+        if comment:
+            if "-->" in text:
+                comment = False
+            quoting = False
+            out.append(SourceLine(no, text, "comment", False))
+            continue
+        m = FENCE_OPEN_RE.match(text)
+        if m:
+            fence = (m.group(1)[0], len(m.group(1)))
+            quoting = False
+            out.append(SourceLine(no, text, "fence", False))
+            continue
+        stripped = text.lstrip()
+        if stripped.startswith("<!--"):
+            comment = "-->" not in text
+            quoting = False
+            out.append(SourceLine(no, text, "comment", False))
+            continue
+        if not text.strip():
+            quoting = False
+            out.append(SourceLine(no, text, "", False))
+        elif stripped.startswith(">"):
+            quoting = True
+            out.append(SourceLine(no, text, "", True))
+        else:
+            out.append(SourceLine(no, text, "", quoting))
+    return out
+
+
+def unclosed_ruby(line: str) -> int:
+    return line.count("<ruby") - line.count("</ruby>")
+
+
+def ruby_to_reading(line: str) -> str:
+    """Line with each ruby element replaced by its reading, leftover rp runs
+    and other tags dropped, entities decoded. Hostile lines skip the ruby
+    regex; their run already fails ruby.structure."""
+    if unclosed_ruby(line) > 50:
+        return TAG_RE.sub("", line)
+    text = RUBY_RE.sub(lambda m: m.group("rt"), line)
+    text = RP_RE.sub("", text)
+    return TAG_RE.sub("", text)
+
+
+def has_content(text: str) -> bool:
+    """True when anything beyond whitespace and punctuation remains."""
+    return bool(re.sub(r"[^\w]+", "", text))
+
+
+def intro_prose_count(intro, marker_no) -> int:
+    """Rendered, nonblank, non-heading, non-quote prose lines before the more
+    marker. The marker line itself is an HTML comment, so it is not prose."""
+    limit = marker_no if marker_no is not None else float("inf")
+    return sum(
+        1 for sl in intro
+        if sl.no < limit and not sl.hidden and not sl.quoted
+        and sl.text.strip() and not HEADING_LINE_RE.match(sl.text)
+    )
+
+
 @dataclass
 class Section:
     kind: str
     heading_no: int
     heading: str
-    lines: list  # (absolute line number, text)
+    lines: list  # SourceLine entries, in order
 
 
 def classify_heading(label: str):
@@ -305,28 +422,25 @@ def classify_heading(label: str):
 
 
 def detect_sections(lines: Sequence[str], offset: int = 0):
-    """Index H2 sections, more markers and intro. offset is the absolute number
-    of the line before lines[0]; fence-internal and quoted headings are content."""
+    """Index H2 sections, more markers and intro over one block-context scan.
+    Headings inside fences or HTML comments are content; the more marker is a
+    single-line comment detected as a marker, never as prose."""
     sections: list = []
     intro: list = []
     more_markers: list = []
-    fence = False
     current = None
-    for idx, line in enumerate(lines):
-        no = offset + idx + 1
-        if FENCE_RE.match(line):
-            fence = not fence
-        if not fence and line.startswith("## "):
-            label = re.sub(r"\s+#+\s*$", "", line[3:].strip())
-            current = Section(classify_heading(label), no, label, [])
+    for sl in scan_source_lines(lines, offset):
+        if not sl.hidden and sl.text.startswith("## "):
+            label = re.sub(r"\s+#+\s*$", "", sl.text[3:].strip())
+            current = Section(classify_heading(label), sl.no, label, [])
             sections.append(current)
             continue
-        if not fence and line.strip() == MORE_MARKER:
-            more_markers.append(no)
+        if sl.hidden == "comment" and sl.text.strip() == MORE_MARKER:
+            more_markers.append(sl.no)
         if current is None:
-            intro.append((no, line))
+            intro.append(sl)
         else:
-            current.lines.append((no, line))
+            current.lines.append(sl)
     return sections, intro, more_markers
 
 
@@ -341,12 +455,13 @@ def split_blocks(section_lines: Sequence):
         nonlocal acc, first_no
         if not acc:
             return
-        head = acc[0][1]
-        if head.startswith("#"):
+        head = acc[0].text
+        if HEADING_LINE_RE.match(head):
             kind = "heading"
         elif head.lstrip().startswith(">"):
             kind = "quote"
-        elif any(FENCE_RE.match(l) or LIST_LINE_RE.match(l) or l.lstrip().startswith("|") for _, l in acc):
+        elif any(FENCE_OPEN_RE.match(sl.text) or LIST_LINE_RE.match(sl.text)
+                 or sl.text.lstrip().startswith("|") for sl in acc):
             kind = "other"
         else:
             kind = "prose"
@@ -354,13 +469,13 @@ def split_blocks(section_lines: Sequence):
         acc = []
         first_no = None
 
-    for no, line in section_lines:
-        if not line.strip():
+    for sl in section_lines:
+        if not sl.text.strip():
             flush()
             continue
         if first_no is None:
-            first_no = no
-        acc.append((no, line))
+            first_no = sl.no
+        acc.append(sl)
     flush()
     return blocks
 
@@ -391,7 +506,7 @@ class _SpanScanner(HTMLParser):
 
 def translation_spans(quote_block_lines: Sequence):
     """Return the nonempty zh-Hant data-translation span texts of a blockquote block."""
-    content = "\n".join(re.sub(r"^\s*>\s?", "", l) for _, l in quote_block_lines)
+    content = "\n".join(re.sub(r"^\s*>\s?", "", sl.text) for sl in quote_block_lines)
     scanner = _SpanScanner()
     scanner.feed(content)
     scanner.close()
@@ -402,55 +517,101 @@ def translation_spans(quote_block_lines: Sequence):
 
 
 def canonical_count(section_lines: Sequence) -> int:
-    """Reading-locked Japanese character count over Japanese-section lines.
-    Headings, blockquote translations and punctuation contribute zero."""
-    selected = [l for _, l in section_lines if l.strip() and not l.lstrip().startswith((">", "#"))]
-    text = "\n".join(selected)
-    # Order is load-bearing: substitute the <rt> reading for the whole ruby
-    # element FIRST, then drop leftover <rp> runs, then strip other tags.
-    # Removing <rp> first dismembers the RUBY_RE pattern and leaves bare bases.
-    text = RUBY_RE.sub(lambda m: m.group("rt"), text)
-    text = RP_RE.sub("", text)
+    """Reading-locked Japanese character count over rendered Japanese-section
+    lines. Hidden blocks, blockquote translations (including lazy continuation),
+    headings and punctuation contribute zero. HTML entities are decoded before
+    counting because the site renders them as text."""
+    chunks = []
+    for sl in section_lines:
+        if (sl.hidden or sl.quoted or not sl.text.strip()
+                or HEADING_LINE_RE.match(sl.text)):
+            continue
+        if unclosed_ruby(sl.text) > 50:
+            chunks.append(sl.text)
+            continue
+        # Order is load-bearing: substitute the <rt> reading for the whole ruby
+        # element FIRST, then drop leftover <rp> runs, then strip other tags.
+        # Removing <rp> first dismembers the RUBY_RE pattern and leaves bare bases.
+        chunks.append(RUBY_RE.sub(lambda m: m.group("rt"), sl.text))
+    text = RP_RE.sub("", "\n".join(chunks))
     text = TAG_RE.sub("", text)
-    return len(COUNT_RE.findall(text))
+    return len(COUNT_RE.findall(html.unescape(text)))
 
 
 def ruby_structure_issues(post_lines: Sequence[str], offset: int = 0):
     issues = []
-    for idx, line in enumerate(post_lines):
-        if "<ruby" not in line and "</ruby>" not in line:
+    for sl in scan_source_lines(post_lines, offset):
+        line = sl.text
+        if sl.hidden or ("<ruby" not in line and "</ruby>" not in line):
             continue
-        no = offset + idx + 1
+        if unclosed_ruby(line) > 50 or len(line) > 20000:
+            issues.append(ev(
+                "observation",
+                f"L{sl.no}: ruby markup too dense or line too long to verify: {line.strip()[:60]}",
+                line=sl.no, observed=line.strip()[:60]))
+            continue
         matches = list(RUBY_RE.finditer(line))
         if line.count("<ruby") != len(matches) or line.count("</ruby>") != len(matches):
-            issues.append(ev("observation", f"L{no}: unbalanced ruby markup: {line.strip()[:60]}",
-                             line=no, observed=line.strip()[:60]))
+            issues.append(ev("observation", f"L{sl.no}: unbalanced ruby markup: {line.strip()[:60]}",
+                             line=sl.no, observed=line.strip()[:60]))
             continue
         for m in matches:
             surface = re.sub(r"[ \t　]", "", m.group("surf"))
             rt = m.group("rt")
             if not surface or not rt or not RT_SCRIPT.fullmatch(rt):
-                issues.append(ev("observation", f"L{no}: invalid ruby element: {m.group(0)[:60]}",
-                                 line=no, observed=m.group(0)[:60]))
+                issues.append(ev("observation", f"L{sl.no}: invalid ruby element: {m.group(0)[:60]}",
+                                 line=sl.no, observed=m.group(0)[:60]))
     return issues
 
 
 def bare_kanji(section_lines: Sequence):
     out = []
-    for no, line in section_lines:
-        if not line.strip() or line.lstrip().startswith((">", "#")):
+    for sl in section_lines:
+        if (sl.hidden or sl.quoted or not sl.text.strip()
+                or HEADING_LINE_RE.match(sl.text)):
             continue
-        text = RUBY_RE.sub("", line)
+        if unclosed_ruby(sl.text) > 50:
+            text = sl.text
+        else:
+            text = RUBY_RE.sub("", sl.text)
         text = RP_RE.sub("", text)
         text = TAG_RE.sub("", text)
-        m = KANJI_RE.search(text)
+        m = KANJI_RE.search(html.unescape(text))
         if m:
-            out.append(ev("observation", f"L{no}: bare kanji {m.group()} outside ruby coverage",
-                          line=no, character=m.group()))
+            out.append(ev("observation", f"L{sl.no}: bare kanji {m.group()} outside ruby coverage",
+                          line=sl.no, character=m.group()))
     return out
 
 
+def vocabulary_cards(section_lines: Sequence):
+    """(line_no, title, card SourceLines) for each rendered H3 in the
+    vocabulary section; fenced or commented-out H3s are not cards."""
+    cards = []
+    cur = None
+    for sl in section_lines:
+        if not sl.hidden and sl.text.startswith("### "):
+            cur = (sl.no, re.sub(r"\s+#+\s*$", "", sl.text[4:].strip()), [])
+            cards.append(cur)
+        elif cur is not None:
+            cur[2].append(sl)
+    return cards
+
+
 # --- annotation contract -----------------------------------------------------
+
+
+VERDICT_SET = frozenset({"ok", "divergent", "low_confidence"})
+SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+
+def _has_surrogate(obj) -> bool:
+    if isinstance(obj, str):
+        return bool(SURROGATE_RE.search(obj))
+    if isinstance(obj, dict):
+        return any(_has_surrogate(k) or _has_surrogate(v) for k, v in obj.items())
+    if isinstance(obj, list):
+        return any(_has_surrogate(v) for v in obj)
+    return False
 
 
 def decode_annotation(raw: bytes, post: Post):
@@ -493,17 +654,42 @@ def decode_annotation(raw: bytes, post: Post):
     if not isinstance(findings, list):
         bad("findings: expected a list")
         findings = []
-    else:
-        for f in findings:
-            if not isinstance(f, dict) or not {"line", "surface", "verdict", "reason"} <= set(f):
-                bad("findings: entry missing line/surface/verdict/reason")
-                break
-        if isinstance(counts, dict) and type(counts.get("low_confidence")) is int and counts["low_confidence"] > 0:
-            if not any(f.get("verdict") == "low_confidence" for f in findings if isinstance(f, dict)):
-                bad("counts.low_confidence > 0 but no low_confidence finding present")
-        if isinstance(counts, dict) and type(counts.get("divergent")) is int and counts["divergent"] > 0:
-            if not any(f.get("verdict") == "divergent" for f in findings if isinstance(f, dict)):
-                bad("counts.divergent > 0 but no divergent finding present")
+    for i, f in enumerate(findings):
+        if not isinstance(f, dict):
+            bad(f"findings[{i}]: expected an object, observed {type(f).__name__}")
+            continue
+        if not {"line", "surface", "verdict", "reason"} <= set(f):
+            bad(f"findings[{i}]: missing line/surface/verdict/reason")
+            continue
+        if type(f["line"]) is not int or f["line"] < 1:
+            bad(f"findings[{i}].line: expected a positive integer, observed {f['line']!r}")
+        if f.get("col") is not None and type(f.get("col")) is not int:
+            bad(f"findings[{i}].col: expected an integer or null, observed {f['col']!r}")
+        if not isinstance(f["surface"], str) or not f["surface"]:
+            bad(f"findings[{i}].surface: expected a nonempty string, observed {f['surface']!r}")
+        if f.get("rt") is not None and not isinstance(f.get("rt"), str):
+            bad(f"findings[{i}].rt: expected a string or null, observed {f['rt']!r}")
+        if f["verdict"] not in VERDICT_SET:
+            bad(f"findings[{i}].verdict: expected one of {sorted(VERDICT_SET)}, observed {f['verdict']!r}")
+        if not isinstance(f["reason"], str) or not f["reason"].strip():
+            bad(f"findings[{i}].reason: expected a nonempty string, observed {f['reason']!r}")
+
+    if _has_surrogate(data):
+        bad("report contains lone surrogate code points that cannot serialize to UTF-8")
+
+    if isinstance(counts, dict) and all(type(counts.get(k)) is int for k in ("divergent", "low_confidence")):
+        has_divergent = any(isinstance(f, dict) and f.get("verdict") == "divergent" for f in findings)
+        has_low = any(isinstance(f, dict) and f.get("verdict") == "low_confidence" for f in findings)
+        if counts["divergent"] > 0 and not has_divergent:
+            bad("counts.divergent > 0 but no divergent finding present")
+        if has_divergent and counts["divergent"] == 0:
+            bad("divergent finding present but counts.divergent is 0")
+        if counts["low_confidence"] > 0 and not has_low:
+            bad("counts.low_confidence > 0 but no low_confidence finding present")
+        if has_low and counts["low_confidence"] == 0:
+            bad("low_confidence finding present but counts.low_confidence is 0")
+        if counts.get("ruby") == 0 and "<ruby" in "\n".join(post.lines):
+            bad("counts.ruby is 0 but the post body contains ruby markup")
     if issues:
         return None, issues
     return data, []
@@ -549,8 +735,11 @@ def assemble_gold(repo_root: Path):
             return None, [ev("observation",
                              f"day {day:03d}: missing baseline report {ann_path.relative_to(repo_root)}",
                              day=day)]
-        members.append(GoldMember(post_path.stem, post_path, ann_path,
-                                  post_path.read_bytes(), ann_path.read_bytes()))
+        try:
+            members.append(GoldMember(post_path.stem, post_path, ann_path,
+                                      post_path.read_bytes(), ann_path.read_bytes()))
+        except OSError as exc:
+            raise ExecutionError(f"cannot read gold member {post_path.stem}: {exc}")
         day += 1
     if not members:
         return None, [ev("observation", "no gold corpus: source/_posts has no day-001 post")]
@@ -569,45 +758,51 @@ def corpus_digest(annotator_bytes: bytes, members: Sequence[GoldMember]) -> str:
 
 
 def replay_gold(annotator_bytes: bytes, members: Sequence[GoldMember]):
-    """Re-run stage 3 in a throwaway tree; compare report bytes exactly."""
-    with tempfile.TemporaryDirectory(prefix="gate-gold-") as tmpname:
-        tmp = Path(tmpname)
-        (tmp / "tools").mkdir()
-        (tmp / "source" / "_posts").mkdir(parents=True)
-        (tmp / "tools" / "annotate-post.py").write_bytes(annotator_bytes)
-        post_args = []
-        for m in members:
-            dest = tmp / "source" / "_posts" / m.post_path.name
-            dest.write_bytes(m.post_bytes)
-            post_args.append(str(dest))
-        proc = subprocess.run(
-            [sys.executable, str(tmp / "tools" / "annotate-post.py")] + post_args,
-            capture_output=True,
-        )
-        # 0 all ok, 2 divergent, 3 low-confidence: all completed stage-3 runs.
-        if proc.returncode not in (0, 2, 3):
-            tail = proc.stderr.decode("utf-8", errors="replace")[-800:]
-            raise ExecutionError(
-                f"gold replay annotator exited {proc.returncode} (expected 0/2/3): {tail}"
-            )
-        issues = []
-        for m in members:
-            generated = tmp / "data" / "annotations" / f"{m.stem}.json"
-            if not generated.is_file():
-                issues.append(ev("hash", f"{m.stem}: replay produced no report",
-                                 member=m.stem, expected_sha256=hashlib.sha256(m.ann_bytes).hexdigest(),
-                                 observed_sha256=None))
-                continue
-            observed = generated.read_bytes()
-            if observed != m.ann_bytes:
-                issues.append(ev(
-                    "hash",
-                    f"{m.stem}: baseline {hashlib.sha256(m.ann_bytes).hexdigest()[:12]}... "
-                    f"!= replayed {hashlib.sha256(observed).hexdigest()[:12]}...",
-                    member=m.stem,
-                    expected_sha256=hashlib.sha256(m.ann_bytes).hexdigest(),
-                    observed_sha256=hashlib.sha256(observed).hexdigest(),
-                ))
+    """Re-run stage 3 in a throwaway tree; compare report bytes exactly.
+    A replay that fails to complete (annotator crash, timeout, missing
+    generated report) is an execution error, never a gold regression."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="gate-gold-") as tmpname:
+            tmp = Path(tmpname)
+            (tmp / "tools").mkdir()
+            (tmp / "source" / "_posts").mkdir(parents=True)
+            (tmp / "tools" / "annotate-post.py").write_bytes(annotator_bytes)
+            post_args = []
+            for m in members:
+                dest = tmp / "source" / "_posts" / m.post_path.name
+                dest.write_bytes(m.post_bytes)
+                post_args.append(str(dest))
+            try:
+                proc = subprocess.run(
+                    [sys.executable, str(tmp / "tools" / "annotate-post.py")] + post_args,
+                    capture_output=True,
+                    timeout=600,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise ExecutionError(f"gold replay annotator timed out after 600s: {exc}")
+            # 0 all ok, 2 divergent, 3 low-confidence: all completed stage-3 runs.
+            if proc.returncode not in (0, 2, 3):
+                tail = proc.stderr.decode("utf-8", errors="replace")[-800:]
+                raise ExecutionError(
+                    f"gold replay annotator exited {proc.returncode} (expected 0/2/3): {tail}"
+                )
+            issues = []
+            for m in members:
+                generated = tmp / "data" / "annotations" / f"{m.stem}.json"
+                if not generated.is_file():
+                    raise ExecutionError(f"gold replay produced no report for {m.stem}; stage 3 did not complete")
+                observed = generated.read_bytes()
+                if observed != m.ann_bytes:
+                    issues.append(ev(
+                        "hash",
+                        f"{m.stem}: baseline {hashlib.sha256(m.ann_bytes).hexdigest()[:12]}... "
+                        f"!= replayed {hashlib.sha256(observed).hexdigest()[:12]}...",
+                        member=m.stem,
+                        expected_sha256=hashlib.sha256(m.ann_bytes).hexdigest(),
+                        observed_sha256=hashlib.sha256(observed).hexdigest(),
+                    ))
+    except OSError as exc:
+        raise ExecutionError(f"gold replay failed: {exc}")
     return issues
 
 
@@ -639,7 +834,7 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
         at = more_markers[0]
         intro_evidence.append(ev("observation", f"{MORE_MARKER} at L{at} is not before the first section",
                                  line=at))
-    if not any(l.strip() and not l.lstrip().startswith((">", "#")) for _, l in intro):
+    if intro_prose_count(intro, more_markers[0] if more_markers else None) < 1:
         intro_ok = False
         intro_evidence.append(ev("observation", "no prose paragraph before the more marker"))
     results["intro.structure"] = (
@@ -754,14 +949,7 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
         results["vocabulary.cards"] = blocked("vocabulary.cards", "sections.required")
     else:
         vocab_evidence = []
-        cards = []
-        cur = None
-        for no, line in vocab.lines:
-            if line.startswith("### "):
-                cur = (no, re.sub(r"\s+#+\s*$", "", line[4:].strip()), [])
-                cards.append(cur)
-            elif cur is not None:
-                cur[2].append((no, line))
+        cards = vocabulary_cards(vocab.lines)
         numbers = []
         for no, title, card_lines in cards:
             m = re.match(r"^(\d+)\.\s*\S", title)
@@ -769,12 +957,26 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
                 numbers.append(int(m.group(1)))
             else:
                 vocab_evidence.append(ev("observation", f'L{no}: card heading not numbered: "### {title}"', line=no))
-            body = "\n".join(l for _, l in card_lines)
+            rendered = [sl for sl in card_lines if not sl.hidden]
             for label in ("詞性", "意思", "常見搭配", "例句"):
-                if label not in body:
+                hits = [sl for sl in rendered if label in sl.text]
+                if not hits:
                     vocab_evidence.append(ev("observation", f"L{no}: card missing {label}", line=no))
-            if not translation_spans(card_lines):
+                    continue
+                after = hits[0].text.split(label, 1)[1]
+                if not has_content(ruby_to_reading(after)):
+                    vocab_evidence.append(ev("observation", f"L{no}: card {label} has no content",
+                                             line=no, label=label))
+                if label == "常見搭配":
+                    for item in re.split(r"[、,]", after):
+                        if item.strip() and not has_content(ruby_to_reading(item)):
+                            vocab_evidence.append(ev("observation",
+                                                     f"L{no}: empty 常見搭配 item", line=no))
+            spans = translation_spans(card_lines)
+            if not spans:
                 vocab_evidence.append(ev("observation", f"L{no}: card missing translation span", line=no))
+            elif not any(has_content(s) for s in spans):
+                vocab_evidence.append(ev("observation", f"L{no}: card translation span has no content", line=no))
         if numbers != [1, 2, 3] or len(cards) != 3:
             vocab_evidence.append(ev("observation",
                                      f"expected 3 cards numbered 1..3, observed {len(cards)} cards {numbers}",
@@ -788,17 +990,53 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
         results["grammar.point"] = blocked("grammar.point", "sections.required")
     else:
         grammar_evidence = []
-        points = [(no, line) for no, line in grammar.lines if line.startswith("### ")]
+        rendered = [sl for sl in grammar.lines if not sl.hidden]
+        points = [sl for sl in rendered if sl.text.startswith("### ")]
         if len(points) != 1:
             grammar_evidence.append(ev("observation",
                                        f"expected 1 grammar H3 point, observed {len(points)}",
                                        observed=len(points)))
-        body = "\n".join(l for _, l in grammar.lines)
+        body = "\n".join(sl.text for sl in rendered)
         for label in ("接續", "核心語意", "例句"):
             if label not in body:
                 grammar_evidence.append(ev("observation", f"grammar section missing {label}"))
         if "比較與注意" not in body and "相似比較" not in body:
             grammar_evidence.append(ev("observation", "grammar section missing comparison material"))
+        conn_items = []
+        in_conn = False
+        conn_label = None
+        for sl in rendered:
+            if "接續" in sl.text:
+                conn_label = sl
+                in_conn = True
+                continue
+            if not in_conn:
+                continue
+            if LIST_LINE_RE.match(sl.text):
+                conn_items.append(sl)
+            elif sl.text.strip():
+                in_conn = False
+        if conn_label is not None:
+            inline = conn_label.text.split("接續", 1)[1]
+            if not has_content(ruby_to_reading(inline)) and not conn_items:
+                grammar_evidence.append(ev("observation", "grammar section has no 接續 items"))
+        for sl in conn_items:
+            if not has_content(ruby_to_reading(sl.text)):
+                grammar_evidence.append(ev("observation", f"L{sl.no}: empty 接續 item", line=sl.no))
+        for kind, no, block_lines in split_blocks(rendered):
+            if kind != "quote":
+                continue
+            spans = translation_spans(block_lines)
+            if not spans:
+                continue
+            if not any(has_content(s) for s in spans):
+                grammar_evidence.append(ev("observation",
+                                           f"L{no}: example translation span has no content", line=no))
+                continue
+            pair = [sl for sl in block_lines if "data-translation" not in sl.text]
+            if not any(has_content(ruby_to_reading(re.sub(r"^\s*>\s?", "", sl.text))) for sl in pair):
+                grammar_evidence.append(ev("observation",
+                                           f"L{no}: example translation has no Japanese sentence", line=no))
         results["grammar.point"] = (
             issue("grammar.point", *grammar_evidence) if grammar_evidence else satisfied("grammar.point")
         )
@@ -816,22 +1054,39 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
             ev("observation", f"{expected_date} is a Sunday: writing section missing"),
         )
     else:
-        prompts = [no for no, line in writing[0].lines if PROMPT_RE.match(line)]
-        if 5 <= len(prompts) <= 8:
+        prompts = []
+        prompt_evidence = []
+        for sl in writing[0].lines:
+            if sl.hidden:
+                continue
+            m = PROMPT_RE.match(sl.text)
+            if not m:
+                continue
+            prompts.append(sl.no)
+            if not has_content(sl.text[m.end():]):
+                prompt_evidence.append(ev(
+                    "observation",
+                    f"L{sl.no}: writing prompt has no content beyond its number",
+                    line=sl.no,
+                ))
+        if 5 <= len(prompts) <= 8 and not prompt_evidence:
             results["writing.sunday"] = satisfied(
                 "writing.sunday",
                 ev("observation", f"{len(prompts)} writing prompts", prompts=len(prompts)),
             )
         else:
-            results["writing.sunday"] = issue(
-                "writing.sunday",
-                ev("observation",
-                   f"L{writing[0].heading_no}: writing section has {len(prompts)} prompts, expected 5-8",
-                   line=writing[0].heading_no, prompts=len(prompts)),
-            )
+            count_evidence = []
+            if not 5 <= len(prompts) <= 8:
+                count_evidence.append(ev(
+                    "observation",
+                    f"L{writing[0].heading_no}: writing section has {len(prompts)} prompts, expected 5-8",
+                    line=writing[0].heading_no, prompts=len(prompts),
+                ))
+            results["writing.sunday"] = issue("writing.sunday", *(count_evidence + prompt_evidence))
 
-    nonblank = [(no, line) for no, line in enumerate(post.lines, start=post.body_start + 1) if line.strip()]
-    last_no, last_line = nonblank[-1] if nonblank else (0, "")
+    body_src = list(intro) + [sl for s in sections for sl in s.lines]
+    nonblank = [sl for sl in body_src if not sl.hidden and sl.text.strip()]
+    last_no, last_line = (nonblank[-1].no, nonblank[-1].text) if nonblank else (0, "")
     results["footer.attribution"] = (
         satisfied("footer.attribution")
         if "JMdict" in last_line and "EDRDG" in last_line
@@ -839,7 +1094,10 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
                    ev("observation", f"L{last_no}: final line does not name JMdict and EDRDG", line=last_no))
     )
 
-    annotation_raw = ann_path.read_bytes() if ann_path.is_file() else None
+    try:
+        annotation_raw = ann_path.read_bytes() if ann_path.is_file() else None
+    except OSError as exc:
+        raise ExecutionError(f"cannot read annotation {ann_path}: {exc}")
     if annotation_raw is None:
         results["annotation.present"] = issue(
             "annotation.present",
@@ -922,11 +1180,26 @@ def write_json(destination: Path, payload: bytes, protected: Sequence[Path]) -> 
     for p in protected:
         if resolved == p.resolve():
             raise ExecutionError(f"--json destination aliases an input: {destination}")
-    tmp = destination.parent / (destination.name + ".gate-tmp")
+    # An exclusive random temp name in the destination directory: a fixed
+    # <dest>.gate-tmp could be occupied by a symlink aimed at an input.
+    for _ in range(8):
+        tmp = destination.parent / f".{destination.name}.{os.urandom(8).hex()}.gate-tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            continue
+        break
+    else:
+        raise ExecutionError(f"cannot create a fresh temp file beside {destination}")
     try:
-        tmp.write_bytes(payload)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
         os.replace(tmp, destination)
     except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         raise ExecutionError(f"cannot write {destination}: {exc}")
 
 
@@ -1041,12 +1314,16 @@ def main(argv: Sequence[str]) -> int:
             for post, path in zip(posts, post_paths)
         ]
         all_results = [c for p in post_reports for c in p["checks"]]
+        try:
+            gate_bytes = Path(__file__).read_bytes()
+        except OSError as exc:
+            raise ExecutionError(f"cannot read the gate itself: {exc}")
         report = {
             "tool": "gate-post",
             "schema": 1,
             "scope": "deterministic",
             "verdict": reduce_verdict(all_results),
-            "gate_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "gate_sha256": hashlib.sha256(gate_bytes).hexdigest(),
             "theme_sha256": hashlib.sha256(theme_bytes).hexdigest(),
             "required_external": list(REQUIRED_EXTERNAL),
             "gold": {
