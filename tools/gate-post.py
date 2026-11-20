@@ -878,7 +878,6 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
                 if counts["divergent"] > 0:
                     results["annotation.divergent"] = issue(
                         "annotation.divergent",
-                        ev("observation", f"counts.divergent = {counts['divergent']}", count=counts["divergent"]),
                         *[ev("finding", finding_detail(f), finding=f) for f in findings
                           if f.get("verdict") == "divergent"],
                     )
@@ -887,8 +886,6 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
                 if counts["low_confidence"] > 0:
                     results["annotation.low_confidence"] = issue(
                         "annotation.low_confidence",
-                        ev("observation", f"counts.low_confidence = {counts['low_confidence']}",
-                           count=counts["low_confidence"]),
                         *[ev("finding", finding_detail(f), finding=f) for f in findings
                           if f.get("verdict") == "low_confidence"],
                     )
