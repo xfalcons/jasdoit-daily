@@ -5,38 +5,30 @@ Usage:
     uv run --with edge-tts python tools/tts-post.py source/_posts/day-001-*.md
 
 Reading-locked input: each <ruby> element is replaced by its own <rt> reading,
-so the voice never guesses a kanji reading. Kanji left outside ruby coverage
-are printed for a human scan before listening.
+so the voice never guesses a kanji reading; extraction is shared with the
+engine (tools/loop_support.py, gate visibility rules and entity decoding).
+Kanji left outside ruby coverage are printed for a human scan before
+listening.
 
 Output: audio-local/day-XXX.mp3, same key convention as the engine-period R2
 objects (agent-loop-design.md section 4), so engine files replace these 1:1.
 """
 import asyncio
-import re
 import sys
 from pathlib import Path
 
 import edge_tts
 
-# Same Neural voice family the engine will use on Azure TTS.
-VOICE = "ja-JP-NanamiNeural"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import loop_support
 
-KANJI_RE = re.compile(r"[㐀-鿿々]")
+# Same Neural voice family the engine will use on Azure TTS.
+VOICE = loop_support.VOICE
 
 
 def extract_japanese(post: str) -> tuple[int, str, list[str]]:
-    day = int(re.search(r"^day:\s*(\d+)", post, re.M).group(1))
-    section = post.split("## 日文文章", 1)[1]
-    section = section.split("\n", 1)[1].split("\n## ", 1)[0]
-    lines = [
-        line.strip()
-        for line in section.splitlines()
-        if line.strip() and not line.lstrip().startswith((">", "#"))
-    ]
-    text = re.sub(r"<rp>.*?</rp>", "", "\n".join(lines))
-    spoken = re.sub(r"<ruby>.*?<rt>(.*?)</rt>.*?</ruby>", r"\1", text)
-    spoken = re.sub(r"<[^>]+>", "", spoken)
-    return day, spoken, sorted(set(KANJI_RE.findall(spoken)))
+    result = loop_support.extract_spoken(post)
+    return result.day, result.spoken, result.unannotated_kanji
 
 
 async def render(day: int, spoken: str, out_dir: Path) -> Path:
