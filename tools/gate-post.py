@@ -144,6 +144,9 @@ def reduce_verdict(results: Sequence[dict]) -> str:
     return "PASS"
 
 
+GATE_EFFECTIVE_DAY = 18  # operator decision 2026-11-20: rule QA binds day >= 18; earlier posts stand as published
+
+
 def length_band(day: int) -> tuple:
     if day <= 30:
         return 250, 300
@@ -900,7 +903,11 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
         minimum, maximum = length_band(day if day is not None else post.day)
         length_ev = ev("length", f"{count}/{maximum} characters", actual=count,
                        minimum=minimum, maximum=maximum, method="reading-locked-japanese-v1")
-        if ruby_issues:
+        if post.day < GATE_EFFECTIVE_DAY:
+            legacy = f"day {post.day:03d} predates gate effective day {GATE_EFFECTIVE_DAY}"
+            results["length.maximum"] = na("length.maximum", legacy)
+            results["length.target_minimum"] = na("length.target_minimum", legacy)
+        elif ruby_issues:
             results["length.maximum"] = blocked("length.maximum", "ruby.structure")
             results["length.target_minimum"] = blocked("length.target_minimum", "ruby.structure")
         else:
@@ -1046,6 +1053,11 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
     is_sunday = expected_date.weekday() == 6
     if day is None:
         results["writing.sunday"] = blocked("writing.sunday", "post.contract")
+    elif post.day < GATE_EFFECTIVE_DAY:
+        results["writing.sunday"] = na(
+            "writing.sunday",
+            f"day {post.day:03d} predates gate effective day {GATE_EFFECTIVE_DAY}",
+        )
     elif not writing and not is_sunday:
         results["writing.sunday"] = na("writing.sunday", f"{expected_date} is not a Sunday")
     elif not writing:
@@ -1337,7 +1349,7 @@ def main(argv: Sequence[str]) -> int:
         print_summary(report)
         if json_path is not None:
             protected = [theme_path, annotator_path, Path(__file__).resolve()]
-            for post, path in zip(posts, post_paths):
+            for path in post_paths:
                 protected.append(path)
                 protected.append(find_annotation(repo_root, path))
             if members:

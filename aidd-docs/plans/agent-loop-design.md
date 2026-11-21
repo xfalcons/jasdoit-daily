@@ -79,6 +79,8 @@ description: "..."
 - **FLAG**：可疑但不確定（讀音低信心、verifier 分歧未達重大、自然度疑慮）→ PR 進 review queue，每天 3–5 分鐘人工處理。歷史語料 FLAG 率 >30% 先校準 verifier 再上線（計畫 §5 WS4）。
 - **FAIL**：硬規則不過（超長、缺章節、讀音錯、gold sample 回歸紅）→ 不出門，通知。
 
+生效邊界（2026-11-20 決定）：rule QA 的長度與週日寫作檢查自 Day 18 起生效（`tools/gate-post.py` 的 `GATE_EFFECTIVE_DAY`）；Day 1–17 歷史語料接受現狀（實測債務：day-001/006/009/010/011 超過 300 字、day-005 寫作提示 4 條、day-012 缺週日寫作）。結構、ruby、中譯、annotation 與 gold 回歸對全部文章不變適用。
+
 ## 4. 冪等與補賽
 
 - 重跑同一天：`_posts/` 已存在該 `day＋kind` → no-op 結束（不重生成、不重 push）。
