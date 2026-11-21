@@ -1,0 +1,2 @@
+VERDICT: PASS
+無重大 finding。讀音與 N3 難度合宜，與近五篇主題無重複。
