@@ -32,14 +32,16 @@ import loop_support
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4o"
 TRANSPORT = 4
-VERDICT_LINE_RE = re.compile(r"^VERDICT:\s*(PASS|FLAG|FAIL)\b")
+VERDICT_LINE_RE = re.compile(r"VERDICT:\s*(PASS|FLAG|FAIL)\s*")
 EXIT_OF_VERDICT = {"PASS": 0, "FLAG": 3, "FAIL": 2}
 
 
 def parse_verdict(response_text: str) -> str | None:
+    """The first non-empty line must be exactly `VERDICT: PASS|FLAG|FAIL`;
+    any trailing commentary makes the response unparseable (exit 4)."""
     for line in response_text.splitlines():
         if line.strip():
-            m = VERDICT_LINE_RE.match(line.strip())
+            m = VERDICT_LINE_RE.fullmatch(line.strip())
             return m.group(1) if m else None
     return None
 
@@ -84,10 +86,7 @@ def call_openrouter(model: str, prompt: str, api_key: str) -> tuple[str, dict | 
     )
     with urllib.request.urlopen(request, timeout=240) as resp:
         payload = json.load(resp)
-    content = payload["choices"][0]["message"]["content"]
-    if not content or not content.strip():
-        raise ValueError("empty completion content")
-    return content, payload.get("usage")
+    return loop_support.completion_content(payload), payload.get("usage")
 
 
 def parse_args(argv):
@@ -122,7 +121,7 @@ def main(argv=None) -> int:
         model = None
         usage = None
     else:
-        model = os.environ.get("VERIFY_MODEL", DEFAULT_MODEL)
+        model = os.environ.get("VERIFY_MODEL") or DEFAULT_MODEL
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             print("verify-post: OPENROUTER_API_KEY not set", file=sys.stderr)

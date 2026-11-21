@@ -8,6 +8,7 @@ daily-loop.py only; nothing here imports a stage tool's policy.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import importlib.util
 import json
@@ -40,7 +41,8 @@ def load_dotenv(repo_root: Path) -> None:
         key, _, value = stripped.partition("=")
         key = key.strip()
         value = value.strip().strip("\"'")
-        if key and key not in os.environ:
+        # Empty values stay unset so callers' `or DEFAULT` resolution wins.
+        if key and value and key not in os.environ:
             os.environ[key] = value
 
 
@@ -52,6 +54,26 @@ def public_audio_url(base: str | None, day: int) -> str | None:
     if not base:
         return None
     return base.rstrip("/") + "/" + audio_key(day)
+
+
+def sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def completion_content(payload: object) -> str:
+    """Validate an OpenRouter completion payload's shape and return its text.
+    Every malformation (no choices, wrong types, empty content) raises
+    ValueError so callers map it to the controlled transport exit."""
+    if not isinstance(payload, dict):
+        raise ValueError("completion response is not a JSON object")
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("completion response has no choices")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("empty completion content")
+    return content
 
 
 def print_meta(payload: dict) -> None:

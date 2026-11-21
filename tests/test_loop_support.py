@@ -59,6 +59,40 @@ class DotEnvTest(unittest.TestCase):
                 loop_support.load_dotenv(root)
                 self.assertEqual(os.environ["GOOD"], "1")
 
+    def test_empty_values_stay_unset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text("GEN_MODEL=\nR2_PUBLIC_BASE=\n", encoding="utf-8")
+            with unittest.mock.patch.dict("os.environ", {}, clear=False):
+                for key in ("GEN_MODEL", "R2_PUBLIC_BASE"):
+                    os.environ.pop(key, None)
+                loop_support.load_dotenv(root)
+                self.assertNotIn("GEN_MODEL", os.environ)
+                self.assertNotIn("R2_PUBLIC_BASE", os.environ)
+
+
+class CompletionContentTest(unittest.TestCase):
+    def test_valid_payload_returns_content(self):
+        payload = {"choices": [{"message": {"content": "hello"}}], "usage": {"cost": 1}}
+        self.assertEqual(loop_support.completion_content(payload), "hello")
+
+    def test_shape_violations_raise_value_error(self):
+        for bad in (
+            [],
+            "text",
+            {},
+            {"choices": []},
+            {"choices": "x"},
+            {"choices": [{}]},
+            {"choices": [{"message": {}}]},
+            {"choices": [{"message": {"content": 7}}]},
+            {"choices": [{"message": {"content": ""}}]},
+            {"choices": [{"message": {"content": "   \n"}}]},
+        ):
+            with self.subTest(payload=bad):
+                with self.assertRaises(ValueError):
+                    loop_support.completion_content(bad)
+
 
 class AudioKeyTest(unittest.TestCase):
     def test_key_shape(self):

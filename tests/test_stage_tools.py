@@ -45,6 +45,11 @@ class VerdictParsingTest(unittest.TestCase):
         self.assertIsNone(verify_post.parse_verdict("verdict: pass\n"))
         self.assertIsNone(verify_post.parse_verdict("VERDICT: PASS後續"))
 
+    def test_trailing_commentary_is_not_a_verdict(self):
+        self.assertIsNone(verify_post.parse_verdict("VERDICT: PASS (actually FLAG)\nfindings…"))
+        self.assertIsNone(verify_post.parse_verdict("VERDICT: FAIL，但請再看\n"))
+        self.assertEqual(verify_post.parse_verdict("VERDICT: PASS  \nbody"), "PASS")
+
 
 class BuildPromptTest(unittest.TestCase):
     def test_prompt_carries_row_digest_and_sunday_toggle(self):

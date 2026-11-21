@@ -96,10 +96,7 @@ def call_openrouter(model: str, prompt: str, api_key: str) -> tuple[str, dict | 
     )
     with urllib.request.urlopen(request, timeout=240) as resp:
         payload = json.load(resp)
-    content = payload["choices"][0]["message"]["content"]
-    if not content or not content.strip():
-        raise ValueError("empty completion content")
-    return content, payload.get("usage")
+    return loop_support.completion_content(payload), payload.get("usage")
 
 
 def parse_args(argv):
@@ -148,7 +145,7 @@ def main(argv=None) -> int:
         model = None
         usage = None
     else:
-        model = os.environ.get("GEN_MODEL", DEFAULT_MODEL)
+        model = os.environ.get("GEN_MODEL") or DEFAULT_MODEL
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             print("generate-post: OPENROUTER_API_KEY not set", file=sys.stderr)
