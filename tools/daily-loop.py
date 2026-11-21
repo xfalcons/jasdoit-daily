@@ -190,7 +190,11 @@ def resolve_day(args, env, now: datetime, anchor: tuple[int, int, int]) -> tuple
     raw = args.day
     if raw is None:
         raw_str = env.get("LOOP_DAY", "").strip()
-        raw = int(raw_str) if raw_str else None
+        if raw_str:
+            try:
+                raw = int(raw_str)
+            except ValueError:
+                raise UsageError(f"LOOP_DAY is not an integer: {raw_str!r}")
     anchor_date = date(*anchor)
     if raw is None:
         day = (now.date() - anchor_date).days + 1
@@ -746,7 +750,7 @@ class Publisher:
             "day": loop.day, "event": "publish", "result": loop.result,
             "pushed": False, "pr_url": None,
         }
-        if loop.result == "fail" or loop.result == "noop":
+        if loop.result == "fail":
             self.commit_ledger(state, state_changed)
             loop.stage_done("publish")
             return publish_event
@@ -773,8 +777,9 @@ class Publisher:
                                 f"engine {loop.result}: day {loop.day:03d}\n"
                                 f"reasons: {', '.join(loop.reasons) or '-'}")
             if pr_url is None:
+                # Content is on the pushed branch; rerunning the day resumes
+                # with PR creation only (amendment 7).
                 loop.flag("pr_create_failed")
-                loop.result = "flag"
             publish_event["pr_url"] = pr_url
         append_ledger_line(loop.sandbox / "data" / "loop-log.jsonl", publish_event)
         self.commit_ledger(state, state_changed)
@@ -912,8 +917,12 @@ def run_engine(args, env, out=sys.stdout, repo_root: Path | None = None,
     if recovered:
         loop.say("DEGRADE: recovered; schedule live re-armed")
 
-    if live:
+    if live and loop.result != "noop":
         Publisher(loop).run(state, state_changed)
+    elif live:
+        # Noop reruns and the post-day-100 schedule no-op leave no commit and
+        # no dirty tree; the sandbox ledger line and transcript are the record.
+        loop.say("publish: nothing to publish (noop)")
     else:
         if loop.result == "fail":
             would = "append the ledger line and commit data/loop-log.jsonl (+engine-state) only (Ruling B)"
