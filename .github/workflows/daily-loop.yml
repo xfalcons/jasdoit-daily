@@ -1,0 +1,69 @@
+name: Daily loop
+
+# The yaml only passes env and inputs; every arming decision lives in
+# tools/daily-loop.py (amendment 4): schedule runs live only when repo
+# variable ENGINE_LIVE == "true", dispatch runs live only when the `live`
+# input is explicitly true, everything else runs dry.
+on:
+  schedule:
+    # 06:00 Taipei daily
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+    inputs:
+      day:
+        description: 'Backfill day (past days only); empty = scheduled day'
+        required: false
+        default: ''
+        type: string
+      live:
+        description: 'Run live (publish/upload); ignores ENGINE_LIVE'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One live run at a time; never cancel an in-flight engine run (amendment 8)
+concurrency:
+  group: daily-loop
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Gold baselines are byte-compared; the pinned patch version is the
+          # recorded baseline environment (amendment 2)
+          python-version: '3.13.7'
+          cache: pip
+
+      - name: Install engine dependencies
+        run: >-
+          pip install edge-tts boto3
+          fugashi==1.5.2 unidic-lite==1.0.8
+          jamdict==0.1a11.post2 jamdict_data==1.5 pykakasi==2.3.0
+
+      - name: Run daily loop
+        env:
+          LOOP_EVENT: ${{ github.event_name }}
+          LOOP_DAY: ${{ inputs.day }}
+          LOOP_DISPATCH_LIVE: ${{ inputs.live }}
+          ENGINE_LIVE: ${{ vars.ENGINE_LIVE }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LOOP_PAT: ${{ secrets.LOOP_PAT }}
+        run: python tools/daily-loop.py

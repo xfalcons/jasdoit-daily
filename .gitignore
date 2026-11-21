@@ -5,3 +5,4 @@ db.json
 .hexo*
 audio-local/
 __pycache__/
+.env
