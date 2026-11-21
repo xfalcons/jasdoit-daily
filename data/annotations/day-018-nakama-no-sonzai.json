@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-018-nakama-no-sonzai",
+  "day": 18,
+  "post_sha256": "befb4bd366e6b71ae977736bc615dbb7b645acef0323554f39fc0cbafbe5c4f0",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 75,
+    "regions": 75,
+    "ok": 75,
+    "ok_contextual": 73,
+    "ok_attested": 2,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
