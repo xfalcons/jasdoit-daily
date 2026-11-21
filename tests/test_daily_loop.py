@@ -832,6 +832,39 @@ class LivePublishTest(unittest.TestCase):
                                               "main:source/_posts").stdout.split()
             self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
 
+    def test_commit_failure_aborts_publish_and_exits_two(self):
+        hook = self.repo.root / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, FakeRunners())
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.result, "pass",
+                             "content verdict must survive a publish failure")
+            self.assertIn("publish failed: git_commit_failed", transcript)
+            self.assertIn("could not record publish failure (git_commit_failed)",
+                          transcript)
+            self.assertEqual(self.repo.origin_subjects(), ["seed"])
+            self.assertEqual(
+                self.repo.origin_git("branch", "--format=%(refname:short)").stdout.split(),
+                ["main"])
+            self.assert_ambient_untouched()
+
+    def test_rerun_after_publish_noops_against_remote(self):
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, FakeRunners())
+            self.assertEqual(code, 0)
+            subjects_after_first = self.repo.origin_subjects()
+            runners = FakeRunners()
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "noop")
+            self.assertEqual(runners.calls, [])
+            self.assertIn("progress: noop", transcript)
+            self.assertIn("nothing to publish", transcript)
+            self.assertEqual(self.repo.origin_subjects(), subjects_after_first)
+            self.assert_ambient_untouched()
+
     def test_live_publish_without_public_base_flags_tts_failed(self):
         runners = FakeRunners()
         original_tts = runners.tts
