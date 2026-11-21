@@ -22,9 +22,10 @@ R2_BUCKET=jasdoit-daily
 R2_PUBLIC_BASE=<啟用 public access 後的公開 base URL，無 trailing slash>
 OPENROUTER_API_KEY=<OpenRouter key>
 LOOP_PAT=<fine-grained PAT，見 §3>
-# 選填覆寫（預設 GEN z-ai/glm-5.3、VERIFY openai/gpt-4o，廠商必須不同）
-GEN_MODEL=
-VERIFY_MODEL=
+# 選填覆寫（預設 GEN z-ai/glm-5.3、VERIFY openai/gpt-4o，廠商必須不同）。
+# 留空等同不設：空值不會覆蓋預設。要覆寫才取消註解並填「非空」值。
+#GEN_MODEL=anthropic/claude-sonnet-4.6
+#VERIFY_MODEL=google/gemini-2.5-pro
 ```
 
 工具會自己讀 `.env`（既有的環境變數優先），值永不印出。
@@ -46,13 +47,14 @@ GitHub → Settings → Developer settings → Fine-grained tokens → Generate�
 ## 4. GitHub secrets 與 variables（六個 secret ＋ 兩個 variable）
 
 ```
-gh secret set R2_ACCESS_KEY_ID      --body "$R2_ACCESS_KEY_ID"
-gh secret set R2_SECRET_ACCESS_KEY  --body "$R2_SECRET_ACCESS_KEY"
-gh secret set R2_ENDPOINT           --body "https://55fb12a63c05303d4072271e85c3fc28.r2.cloudflarestorage.com"
-gh secret set R2_BUCKET             --body "jasdoit-daily"
-gh secret set OPENROUTER_API_KEY    --body "$OPENROUTER_API_KEY"
-gh secret set LOOP_PAT              --body "$LOOP_PAT"
-gh variable set R2_PUBLIC_BASE      --body "https://pub-xxxx.r2.dev"
+# secrets 一律走 stdin，值不進 argv／shell history（--body 只給非機密的 variable）
+printf %s "$R2_ACCESS_KEY_ID"     | gh secret set R2_ACCESS_KEY_ID
+printf %s "$R2_SECRET_ACCESS_KEY" | gh secret set R2_SECRET_ACCESS_KEY
+printf %s "https://55fb12a63c05303d4072271e85c3fc28.r2.cloudflarestorage.com" | gh secret set R2_ENDPOINT
+printf %s "jasdoit-daily"         | gh secret set R2_BUCKET
+printf %s "$OPENROUTER_API_KEY"   | gh secret set OPENROUTER_API_KEY
+printf %s "$LOOP_PAT"             | gh secret set LOOP_PAT
+gh variable set R2_PUBLIC_BASE --body "https://pub-xxxx.r2.dev"
 # ENGINE_LIVE 先不設（未設＝disarmed）；arming 見 §6
 ```
 
@@ -62,13 +64,15 @@ Actions → Daily loop → Run workflow →（不勾 live）→ Run。或本機�
 
 ```
 LOOP_NOW=2026-11-22T07:00:00+08:00 \
-GEN_FAKE_PATH=tests/fixtures/day-019-chiisana-shouri-wo-iwau.md \
-VERIFY_FAKE_PATH=tests/fixtures/verify-pass.txt \
+GEN_FAKE_PATH=/Users/xfalcons/dev/xfalcons/jasdoit-daily/tests/fixtures/day-019-chiisana-shouri-wo-iwau.md \
+VERIFY_FAKE_PATH=/Users/xfalcons/dev/xfalcons/jasdoit-daily/tests/fixtures/verify-pass.txt \
 uv run --python 3.13.7 \
-  --with edge-tts --with boto3 --with fugashi==1.5.2 --with unidic-lite==1.0.8 \
+  --with edge-tts==7.3.1 --with boto3==1.44.9 --with fugashi==1.5.2 --with unidic-lite==1.0.8 \
   --with jamdict==0.1a11.post2 --with jamdict_data==1.5 --with pykakasi==2.3.0 \
   python tools/daily-loop.py --dry-run
 ```
+
+fake path 用絕對路徑：stage tools 的 cwd 是 temp sandbox，相對路徑會指進 sandbox 裡不存在的 fixtures（引擎會把相對 fake path 以 repo root 解析成絕對路徑，但寫絕對路徑最不容易出錯）。版本 pin 對齊 `tools/requirements-engine.txt`。
 
 檢查：transcript 依序出現 select→generate→annotate→gate→verify→tts→finalize；TTS 印出 `key audio/day-0NN.mp3` 與 public URL 但 `upload skipped (dry-run)`；結尾 `DISARMED` banner；`git status` 乾淨；exit 0。真模型 dry-run（不設 fake env、`.env` 有 key）同理，只差在會打 OpenRouter。
 
@@ -90,7 +94,8 @@ gh variable set ENGINE_LIVE --body "true"
 - 補音（`tts_failed` FLAG 之後）：重跑該天 TTS → 只 patch `audio_url` → 重跑 annotate（freshness）→ commit：
 
 ```
-uv run --with edge-tts --with boto3 python tools/tts-upload.py source/_posts/day-0NN-<slug>.md
+uv run --with edge-tts==7.3.1 --with boto3==1.44.9 \
+  python tools/tts-upload.py source/_posts/day-0NN-<slug>.md
 # 用印出的 URL patch 該 post front-matter 的 audio_url（正文與檔名不動）
 uv run --with fugashi==1.5.2 --with unidic-lite==1.0.8 --with jamdict==0.1a11.post2 \
   --with jamdict_data==1.5 --with pykakasi==2.3.0 \
@@ -108,7 +113,7 @@ git push
 
 ## 9. 版本鎖定（gold byte-identity）
 
-CI pins Python `3.13.7` ＋五個 annotation 套件的確切版本（見 workflow）。基準版本以任一 `data/annotations/*.json` 的 `sources` 為準：
+CI pins Python `3.13.7` ＋全部七個引擎套件的確切版本（`tools/requirements-engine.txt`，含 `edge-tts`／`boto3`）。基準版本以任一 `data/annotations/*.json` 的 `sources` 為準：
 
 ```
 python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no-sonzai.json'))['sources'])"
@@ -124,4 +129,5 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 | `pending_pr` FAIL | 該天已有開著的 PR（branch `loop/day-NNN`）；先處理 PR |
 | push 失敗 / PR 開不成 | 檢查 `LOOP_PAT` scope（§3）與 repo 權限；branch 已推成功時，重跑同一 day 會走 resume 只補開 PR |
 | `verifier_vendor` FLAG | `GEN_MODEL`／`VERIFY_MODEL` 同廠或格式錯（需 `vendor/model`）；自動 PASS 被擋，改成不同廠 |
+| live FLAG `tts_failed` 且 `audio_url` 空 | `R2_PUBLIC_BASE` 未設（§2）或 TTS render／upload 重試後仍敗；走 PR 不 push main，之後依 §7 補音 |
 | gold replay 紅 | 套件或 Python 版本漂移；見 §9 |

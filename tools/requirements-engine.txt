@@ -1,0 +1,10 @@
+# Engine dependencies, pinned (amendment 2): gold baselines are
+# byte-compared, so every package that touches annotation bytes, TTS or R2
+# is locked to the version the baselines were produced with.
+edge-tts==7.3.1
+boto3==1.44.9
+fugashi==1.5.2
+unidic-lite==1.0.8
+jamdict==0.1a11.post2
+jamdict_data==1.5
+pykakasi==2.3.0

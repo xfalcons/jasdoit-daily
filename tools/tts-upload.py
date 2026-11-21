@@ -172,6 +172,7 @@ def main(argv=None) -> int:
         print("tts-upload: R2_PUBLIC_BASE is not set; the object can upload but no "
               "public URL exists (engine live runs flag tts_failed)", file=sys.stderr)
     out_dir = args.out_dir if args.out_dir else Path(tempfile.mkdtemp(prefix="tts-upload-"))
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.dry_run:
         try:

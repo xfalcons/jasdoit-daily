@@ -1,13 +1,20 @@
 """Tests for tts-upload's live decisions with fake R2 clients and a
 monkeypatched render: head classification, hash-metadata reuse, and the
 independent render/upload retries. No boto3, no edge-tts, no network."""
+import contextlib
 import importlib.util
-import json
+import io
 import sys
 import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+
+
+@contextlib.contextmanager
+def quiet():
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        yield
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,11 +74,15 @@ class HeadStateTest(unittest.TestCase):
         for code in ("403", "500", "InternalError", "AccessDenied"):
             with self.subTest(code=code):
                 client = FakeClient(head_exc=FakeClientError(code))
-                self.assertEqual(tts_upload.head_state(client, 19, SPOKEN_SHA), "error")
+                with quiet():
+                    state = tts_upload.head_state(client, 19, SPOKEN_SHA)
+                self.assertEqual(state, "error")
 
     def test_connection_failure_without_response_is_error(self):
         client = FakeClient(head_exc=OSError("connection timed out"))
-        self.assertEqual(tts_upload.head_state(client, 19, SPOKEN_SHA), "error")
+        with quiet():
+            state = tts_upload.head_state(client, 19, SPOKEN_SHA)
+        self.assertEqual(state, "error")
 
     def test_matching_hash_and_length_reuses(self):
         client = FakeClient(head={"ContentLength": 4096, "Metadata": {"spoken-sha256": SPOKEN_SHA}})
@@ -88,9 +99,7 @@ class HeadStateTest(unittest.TestCase):
 
 class PublishAudioTest(unittest.TestCase):
     def publish(self, client, out_dir):
-        import contextlib
-        import io
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             return tts_upload.publish_audio(client, 19, SPOKEN, out_dir)
 
     def render_factory(self, calls, errors):
@@ -200,9 +209,7 @@ class PublishAudioTest(unittest.TestCase):
 
 class MainLiveModeTest(unittest.TestCase):
     def run_main(self, client):
-        import contextlib
-        import io
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             with unittest.mock.patch.object(tts_upload, "r2_client", return_value=client), \
                     unittest.mock.patch.dict("os.environ",
                                              {"R2_BUCKET": "jasdoit",
