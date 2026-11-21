@@ -67,7 +67,7 @@ description: "..."
 | 0 | 觸發 | `daily-loop.yml` cron（UTC；台北 06:00 ＝ 前日 22:00 UTC）或 `workflow_dispatch` 補跑 | run 啟動 | 延遲可容忍（§6.2） |
 | 1 | 選題 | 讀 `aidd-docs/references/japanese-theme-rotation.md` 的 Day X row；掃 `_posts/` 關鍵字去重 | 當日主題＋核心句 | row 未填（Day 31＋）→ FAIL＋通知（Day 30 前補表） |
 | 2 | 生成 | `AGENTS-teacher.md` persona ＋ 主題 row ＋ 難度/長度約束 ＋ §1 模板；預設 1 篇/天（批次參數保留，上限寫死） | draft markdown | 重試 1 次，再敗 FAIL |
-| 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧 → FLAG |
+| 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧（divergent）→ FAIL；低信心（low_confidence）→ FLAG |
 | 4 | 驗證閘門 | rule QA ＋ 跨模型 verifier ＋ gold sample 回歸 | PASS／FLAG／FAIL | 判準見 §3 |
 | 5 | TTS | 讀音鎖定文字（ruby 的 `<rt>` 讀音取代漢字餵入；Azure SSML `<sub>` 亦可，勿剝 ruby 餵裸漢字 — 2026-11-08 實測 edge-tts 將 `百日間` 誤讀）→ Azure Neural ja-JP → mp3 → R2 `day-XXX.mp3`；未標註漢字清單印出人工掃 | `audio_url` | 重試 1 次；再敗則文先出（`audio_url` 留空＋FLAG），音後補 |
 | 6 | 入庫＝發布 | PASS → commit＋push main（PAT）；FLAG → branch＋PR；FAIL → 不 commit | git commit／PR | 見 §4 §5 |
@@ -80,6 +80,12 @@ description: "..."
 - **FAIL**：硬規則不過（超長、缺章節、讀音錯、gold sample 回歸紅）→ 不出門，通知。
 
 生效邊界（2026-11-20 決定）：rule QA 的長度與週日寫作檢查自 Day 18 起生效（`tools/gate-post.py` 的 `GATE_EFFECTIVE_DAY`）；Day 1–17 歷史語料接受現狀（實測債務：day-001/006/009/010/011 超過 300 字、day-005 寫作提示 4 條、day-012 缺週日寫作）。結構、ruby、中譯、annotation 與 gold 回歸對全部文章不變適用。
+
+解釋備註（2026-11-21，引擎實作 ruling；operator 可否決）：
+
+- **Ruling A（N3 詞表縫隙）**：`required_external` 的 `n3_vocabulary` 尚無 deterministic 檢查；補齊前，跨模型 verifier 的 prompt 含「N3 適切性」審查項，verifier 完成 PASS 即視為該 run 的 N3 檢查閉合，gate verdict 不再被 unresolved `n3_vocabulary` 壓成 FLAG。若 operator 否決：設定 `AUTO_PUSH_N3=false`，引擎 PASS 改走 branch＋PR 而非 push main（`tools/daily-loop.py` 內建，一行 env）。
+- **Ruling B（FAIL 不 commit）**：§2 stage 6「FAIL → 不 commit」指站上內容（post／annotation）不進 repo。`data/loop-log.jsonl` 與 `data/engine-state.json` 是管線狀態而非站內容（pages.yml 輸出不受影響），FAIL run 允許 commit、且僅 commit 這兩個檔案；降級（§5）的連敗計數因此有跨 run 的持久歷史。
+- **讀音語意（修訂 §2 stage 3 與本節的衝突）**：`divergent` → FAIL、`low_confidence` → FLAG，與已上線的 `tools/gate-post.py` 行為一致；§2 stage 3 表列已同步修正（2026-11-21）。
 
 ## 4. 冪等與補賽
 
