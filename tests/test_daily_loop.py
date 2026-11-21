@@ -2,14 +2,16 @@
 fixture repo with injected fake runners (no subprocess, no network). The
 real subprocess integration is measured by the sandbox end-to-end dry run
 in the engine runbook validation."""
-import argparse
 import importlib.util
 import io
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -84,7 +86,13 @@ class FakeRunners:
         return rc, "META {}" if rc == 0 else "", "", {"cost_usd": 0.012} if rc == 0 else None
 
     def annotate(self, post):
-        self.posts_seen.append(post.read_text(encoding="utf-8"))
+        text = post.read_text(encoding="utf-8")
+        self.posts_seen.append(text)
+        report = post.parents[2] / "data" / "annotations" / f"{post.stem}.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(
+            {"post": post.name, "post_sha256": daily_loop.sha256_text(text)}),
+            encoding="utf-8")
         rc = self._next(self.annotate_codes, "annotate")
         return rc, "", "", None
 
@@ -164,6 +172,52 @@ class NoopTest(unittest.TestCase):
             self.assertEqual(runners.calls, [])
             self.assertEqual(repo.tree_files(), before)
 
+    def test_past_day_100_schedule_reports_noop_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            code, loop, transcript = run(
+                repo, runners, env={"LOOP_NOW": "2027-02-20T07:00:00+08:00"})
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "noop")
+            self.assertEqual(runners.calls, [])
+            self.assertIn("past day 100", transcript)
+
+
+class EventNameTest(unittest.TestCase):
+    def test_both_dispatch_spellings_map_to_one_constant(self):
+        self.assertEqual(daily_loop.normalize_event({"LOOP_EVENT": "workflow_dispatch"}),
+                         "dispatch")
+        self.assertEqual(daily_loop.normalize_event({"LOOP_EVENT": "dispatch"}), "dispatch")
+        self.assertEqual(daily_loop.normalize_event({"LOOP_EVENT": "schedule"}), "schedule")
+        self.assertEqual(daily_loop.normalize_event({"LOOP_EVENT": ""}), "")
+        self.assertEqual(daily_loop.normalize_event({}), "")
+
+    def test_workflow_dispatch_arms_live(self):
+        args = SimpleNamespace(live=False, dry_run=False)
+        live, arming = daily_loop.resolve_arming(
+            args, {"LOOP_EVENT": "workflow_dispatch", "LOOP_DISPATCH_LIVE": "true"})
+        self.assertEqual((live, arming), (True, "arming"))
+        live, _ = daily_loop.resolve_arming(
+            args, {"LOOP_EVENT": "dispatch", "LOOP_DISPATCH_LIVE": "true"})
+        self.assertTrue(live)
+
+    def test_degrade_forcing_applies_to_schedule_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            (repo.root / "data" / "engine-state.json").write_text(
+                json.dumps({"schema": 1, "degraded": True, "recover_passes": 0}),
+                encoding="utf-8")
+            runners = FakeRunners()
+            code, loop, _ = run(repo, runners, live=True, dry=False,
+                                env={"LOOP_EVENT": "workflow_dispatch",
+                                     "LOOP_DISPATCH_LIVE": "true"})
+            self.assertTrue(loop.live)
+            # No git remote in this fixture: the live pre-check fails loudly
+            # instead of silently degrading to a dry run.
+            self.assertEqual(loop.result, "fail")
+            self.assertIn("progress_check_failed", loop.reasons)
+
 
 class FailTransitionTest(unittest.TestCase):
     def test_generate_fail_retries_once_then_fails(self):
@@ -211,6 +265,45 @@ class FailTransitionTest(unittest.TestCase):
             self.assertEqual(loop.result, "flag")
             self.assertIn("verifier_unavailable", loop.reasons)
             self.assertEqual(runners.calls.count("verify"), 2)
+
+
+class ExecutionTierTest(unittest.TestCase):
+    """Signal kills and unexpected exits are execution errors (FAIL), never
+    completed verdicts; only phase exhaustion stays a FLAG."""
+
+    def test_gate_signal_kill_is_an_execution_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(gate=[-9])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["gate_error"])
+
+    def test_final_gate_signal_kill_is_an_execution_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(gate=[0, -9])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["gate_error"])
+
+    def test_verifier_signal_kill_fails_without_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(verify=[-9])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["verifier_error"])
+            self.assertEqual(runners.calls.count("verify"), 1)
+
+    def test_tts_crash_is_execution_error_not_phase_exhaustion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(tts=[1])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["tts_error"])
+            self.assertEqual(runners.calls.count("tts"), 1)
 
 
 class FlagTransitionTest(unittest.TestCase):
@@ -324,6 +417,28 @@ class DegradeTest(unittest.TestCase):
         self.assertTrue(changed)
         self.assertFalse(entered)
 
+    def test_manual_fail_never_clears_the_latch(self):
+        state = {"schema": 1, "degraded": True, "recover_passes": 1}
+        entries = [self.entry(17, "pass"), self.entry(18, "fail"), self.entry(19, "fail")]
+        state, changed, entered, recovered = daily_loop.apply_state_transitions(
+            state, entries, live=True, noop=False, manual=True, result="fail")
+        self.assertTrue(state["degraded"])
+        self.assertFalse(entered)
+        self.assertFalse(recovered)
+        self.assertEqual(state["recover_passes"], 0)
+        self.assertTrue(changed)
+
+    def test_streak_scan_reads_only_the_latest_tail(self):
+        results = {15: "fail", 16: "fail", 17: "fail", 18: "pass", 19: "fail"}
+        self.assertFalse(daily_loop.enters_degraded(results))
+        self.assertTrue(daily_loop.enters_degraded({17: "fail", 18: "fail", 19: "fail"}))
+        entries = [self.entry(15, "fail"), self.entry(16, "fail"), self.entry(17, "fail"),
+                   self.entry(18, "pass"), self.entry(19, "fail")]
+        _, _, entered, _ = daily_loop.apply_state_transitions(
+            {"schema": 1, "degraded": False, "recover_passes": 0}, entries,
+            live=True, noop=False, manual=True, result="fail")
+        self.assertFalse(entered)
+
     def test_pass_day_breaks_streak(self):
         entries = [self.entry(17, "fail"), self.entry(18, "pass"), self.entry(19, "fail")]
         _, _, entered, _ = daily_loop.apply_state_transitions(
@@ -431,6 +546,31 @@ class PostCompositionTest(unittest.TestCase):
         self.assertEqual(daily_loop.romaji_slug("小さな勝利を祝う"), "post")
 
 
+class FrontMatterQuotingTest(unittest.TestCase):
+    def test_yaml_double_quoted_escapes_model_owned_characters(self):
+        self.assertEqual(daily_loop.yaml_double_quoted('練習 "成功" 的表達'),
+                         '"練習 \\"成功\\" 的表達"')
+        self.assertEqual(daily_loop.yaml_double_quoted("a\\b"), '"a\\\\b"')
+        self.assertEqual(daily_loop.yaml_double_quoted("a\tb"), '"a\\tb"')
+
+    def test_composed_post_front_matter_is_valid(self):
+        row = daily_loop.loop_support.ThemeRow(19, "小さな勝利", "重點", "核心句。")
+        post = daily_loop.compose_post(row, 19, date(2026, 11, 22), "body",
+                                       '練習 "成功" 的表達', "pass", "https://x/y.mp3",
+                                       "z-ai/glm-5.3", "openai/gpt-4o", 0.01)
+        self.assertTrue(daily_loop.front_matter_valid(post),
+                        msg=post.split("---")[1])
+        self.assertIn('description: "練習 \\"成功\\" 的表達"', post)
+
+    def test_validator_rejects_unclosed_quotes_and_bad_lines(self):
+        unclosed = '---\ndescription: "unclosed\n---\nbody'
+        self.assertFalse(daily_loop.front_matter_valid(unclosed))
+        bad_line = "---\nnot a mapping line\n---\nbody"
+        self.assertFalse(daily_loop.front_matter_valid(bad_line))
+        self.assertTrue(daily_loop.front_matter_valid(
+            "---\ncategories:\n  - 日語學習\ndescription: \"ok\"\n---\nbody"))
+
+
 class StateSchemaTest(unittest.TestCase):
     def test_engine_state_bytes_shape(self):
         blob = daily_loop.state_bytes({"schema": 1, "degraded": True, "recover_passes": 1})
@@ -447,6 +587,272 @@ class StateSchemaTest(unittest.TestCase):
                 self.assertIn(key, record)
             self.assertEqual(record["day"], 19)
             self.assertFalse(record["live"])
+
+
+class GhStub:
+    """Executable `gh` stand-in: pr-list answers [], pr-create prints a URL
+    (or fails) and logs its arguments."""
+
+    def __init__(self, tmp: Path, fail_create: bool = False):
+        self.log = tmp / "gh-calls.log"
+        fail = "true" if fail_create else "false"
+        bindir = tmp / "gh-bin"
+        bindir.mkdir(exist_ok=True)
+        self.script = bindir / "gh"
+        self.script.write_text(
+            "#!/bin/sh\n"
+            f'echo "$*" >> {self.log}\n'
+            'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "[]"; exit 0; fi\n'
+            "if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then\n"
+            f"  if {fail}; then echo 'gh: create failed' >&2; exit 1; fi\n"
+            "  echo 'https://github.com/example/jasdoit-daily/pull/7'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        self.script.chmod(0o755)
+
+    def create_calls(self):
+        if not self.log.is_file():
+            return []
+        return [line for line in self.log.read_text(encoding="utf-8").splitlines()
+                if line.startswith("pr create")]
+
+
+class GitLiveRepo:
+    """A clone of a bare origin pre-seeded with the fixture corpus. Live
+    runs publish to origin only; the ambient clone must never move."""
+
+    def __init__(self, tmp: Path):
+        self.origin = tmp / "origin.git"
+        self.root = tmp / "clone"
+        seed = tmp / "seed"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+        for key, value in (("user.name", "seed"), ("user.email", "seed@example.test")):
+            subprocess.run(["git", "-C", str(seed), "config", key, value], check=True)
+        FixtureRepo(seed)
+        subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(seed), "commit", "-q", "-m", "seed"], check=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.origin)],
+                       check=True)
+        subprocess.run(["git", "-C", str(seed), "remote", "add", "origin", str(self.origin)],
+                       check=True)
+        subprocess.run(["git", "-C", str(seed), "push", "-q", "origin", "main"], check=True)
+        subprocess.run(["git", "clone", "-q", str(self.origin), str(self.root)], check=True)
+        for key, value in (("user.name", "engine"), ("user.email", "engine@example.test")):
+            subprocess.run(["git", "-C", str(self.root), "config", key, value], check=True)
+        self.seed_sha = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"],
+                                       capture_output=True, text=True, check=True).stdout.strip()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.root), *args],
+                              capture_output=True, text=True)
+
+    def origin_git(self, *args):
+        return subprocess.run(["git", "-C", str(self.origin), *args],
+                              capture_output=True, text=True)
+
+    def origin_subjects(self, ref="main"):
+        proc = self.origin_git("log", "--format=%s", ref)
+        return proc.stdout.splitlines()
+
+    def origin_show(self, ref, path):
+        return self.origin_git("show", f"{ref}:{path}").stdout
+
+    def ambient_state(self):
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        status = self.git("status", "--porcelain").stdout.strip()
+        branches = self.git("branch", "--list", "loop/*").stdout.strip()
+        worktrees = len([line for line in self.git("worktree", "list").stdout.splitlines()
+                         if line.strip()])
+        return head, status, branches, worktrees
+
+
+def run_live(repo: GitLiveRepo, runners: FakeRunners, env=None, day=None):
+    args = SimpleNamespace(day=day, live=True, dry_run=False)
+    out = io.StringIO()
+    merged = {"LOOP_NOW": NOW, "LOOP_EVENT": "workflow_dispatch",
+              "LOOP_DISPATCH_LIVE": "true",
+              "GEN_MODEL": "z-ai/glm-5.3", "VERIFY_MODEL": "openai/gpt-4o",
+              **(env or {})}
+    code, loop = daily_loop.run_engine(
+        args, merged, out=out, repo_root=repo.root,
+        runners_factory=lambda sandbox, d: runners.make(sandbox, d),
+    )
+    return code, loop, out.getvalue()
+
+
+class gh_on_path:
+    def __init__(self, stub: GhStub):
+        self.stub = stub
+        self.old_path = None
+
+    def __enter__(self):
+        self.old_path = os.environ["PATH"]
+        os.environ["PATH"] = f"{self.stub.script.parent}{os.pathsep}{self.old_path}"
+        return self.stub
+
+    def __exit__(self, *exc):
+        os.environ["PATH"] = self.old_path
+
+
+class LivePublishTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = GitLiveRepo(Path(self.tmp.name))
+
+    def tearDown(self):
+        subprocess.run(["git", "-C", str(self.repo.root), "worktree", "prune"],
+                       capture_output=True)
+        self.tmp.cleanup()
+
+    def assert_ambient_untouched(self):
+        head, status, branches, worktrees = self.repo.ambient_state()
+        self.assertEqual(head, self.repo.seed_sha)
+        self.assertEqual(status, "")
+        self.assertEqual(branches, "", "ambient checkout gained a loop branch")
+        self.assertEqual(worktrees, 1, "a publish worktree was left behind")
+
+    def test_pass_pushes_record_with_content_then_event_ledger(self):
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, transcript = run_live(self.repo, FakeRunners())
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            subjects = self.repo.origin_subjects()
+            self.assertEqual(subjects[0], "loop: day 019 pass ledger")
+            self.assertEqual(subjects[1], "content: day 019 post (engine pass)")
+            post_names = self.repo.origin_git(
+                "ls-tree", "--name-only", "main:source/_posts").stdout.split()
+            self.assertTrue(any(n.startswith("day-019-") for n in post_names),
+                            msg=post_names)
+            ledger_main = [json.loads(l) for l in
+                           self.repo.origin_show("main", "data/loop-log.jsonl").splitlines()]
+            self.assertEqual(ledger_main[0]["result"], "pass")
+            self.assertEqual(ledger_main[1]["event"], "publish")
+            self.assertTrue(ledger_main[1]["pushed"])
+            ledger_content = [json.loads(l) for l in
+                              self.repo.origin_show("main~1", "data/loop-log.jsonl").splitlines()]
+            self.assertEqual(len(ledger_content), 1)
+            self.assertEqual(ledger_content[0]["result"], "pass")
+            self.assertEqual(stub.create_calls(), [])
+            self.assert_ambient_untouched()
+
+    def test_verifier_exhaust_flags_and_publishes_via_pr_only(self):
+        runners = FakeRunners(verify=[4, 4])
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "flag")
+            self.assertIn("verifier_unavailable", loop.reasons)
+            subjects = self.repo.origin_subjects()
+            self.assertEqual(subjects[0], "loop: day 019 flag ledger")
+            self.assertNotIn("content: day 019 post (engine pass)", subjects)
+            self.assertEqual(self.repo.origin_show("main", "source/_posts/day-018-nakama-no-sonzai.md")[:4],
+                             "---\n")
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+            ledger_main = [json.loads(l) for l in
+                           self.repo.origin_show("main", "data/loop-log.jsonl").splitlines()]
+            self.assertEqual(ledger_main[0]["result"], "flag")
+            self.assertEqual(ledger_main[0]["reasons"], ["verifier_unavailable"])
+            branches = self.repo.origin_git("branch", "--list", "loop/day-019*").stdout.split()
+            self.assertEqual(branches, ["loop/day-019"])
+            branch_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                                "loop/day-019:source/_posts").stdout.split()
+            self.assertTrue(any(n.startswith("day-019-") for n in branch_posts), msg=branch_posts)
+            branch_ledger = self.repo.origin_git("ls-tree", "--name-only",
+                                                 "loop/day-019", "data/loop-log.jsonl").stdout.strip()
+            self.assertEqual(branch_ledger, "", "PR branch must not touch the ledger")
+            self.assertEqual(len(stub.create_calls()), 1)
+            self.assertIn("--head loop/day-019", stub.create_calls()[0])
+            self.assert_ambient_untouched()
+
+    def test_fail_commits_ledger_and_state_only(self):
+        runners = FakeRunners(generate=[4, 4])
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.result, "fail")
+            self.assertEqual(loop.reasons, ["generate_failed"])
+            self.assertEqual(self.repo.origin_subjects()[0], "loop: day 019 fail ledger")
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+            ledger = [json.loads(l) for l in
+                      self.repo.origin_show("main", "data/loop-log.jsonl").splitlines()]
+            self.assertEqual(ledger[0]["result"], "fail")
+            self.assert_ambient_untouched()
+
+    def test_pr_create_failure_keeps_verdict_records_event_and_exits_two(self):
+        runners = FakeRunners(verify=[3])
+        with gh_on_path(GhStub(Path(self.tmp.name), fail_create=True)):
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.result, "flag")
+            self.assertIn("verifier_flag", loop.reasons)
+            self.assertIn("pr_create_failed", transcript)
+            ledger = [json.loads(l) for l in
+                      self.repo.origin_show("main", "data/loop-log.jsonl").splitlines()]
+            self.assertEqual(ledger[0]["result"], "flag")
+            self.assertEqual(ledger[0]["reasons"], ["verifier_flag"])
+            events = [entry for entry in ledger if entry.get("event") == "publish"]
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["error"], "pr_create_failed")
+            branches = self.repo.origin_git("branch", "--list", "loop/day-019*").stdout.split()
+            self.assertEqual(branches, ["loop/day-019"])
+            self.assert_ambient_untouched()
+
+    def test_live_run_refuses_fake_env(self):
+        fake = str(FIXTURES / "day-019-chiisana-shouri-wo-iwau.md")
+        runners = FakeRunners()
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, runners,
+                                              env={"GEN_FAKE_PATH": fake})
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["fake_mode_in_live"])
+            self.assertEqual(runners.calls, [])
+            self.assertEqual(self.repo.origin_subjects()[0], "loop: day 019 fail ledger")
+
+    def test_live_run_refuses_fake_stage_metadata(self):
+        runners = FakeRunners()
+        original_generate = runners.generate
+
+        def generate_with_fake_meta(draft):
+            rc, stdout, stderr, meta = original_generate(draft)
+            return rc, stdout, stderr, {**(meta or {}), "fake": True}
+
+        runners.generate = generate_with_fake_meta
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["fake_mode_in_live"])
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+
+    def test_live_publish_without_public_base_flags_tts_failed(self):
+        runners = FakeRunners()
+        original_tts = runners.tts
+
+        def tts_without_url(post):
+            rc, stdout, stderr, meta = original_tts(post)
+            return rc, stdout, stderr, {"url": None, "unannotated": ""}
+
+        runners.tts = tts_without_url
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "flag")
+            self.assertIn("tts_failed", loop.reasons)
+            self.assertIsNone(loop.audio_url)
+            branches = self.repo.origin_git("branch", "--list", "loop/day-019*").stdout.split()
+            self.assertEqual(branches, ["loop/day-019"])
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+            self.assertEqual(len(stub.create_calls()), 1)
 
 
 if __name__ == "__main__":
