@@ -1,12 +1,15 @@
 """Tests for stage tools' pure prompt/verdict logic and their no-network
 fake modes (GEN_FAKE_PATH / VERIFY_FAKE_PATH / REVISE_FAKE_PATH)."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,6 +186,32 @@ class RevisionModeTest(unittest.TestCase):
         meta = [ln for ln in proc.stdout.splitlines() if ln.startswith("META ")][-1]
         self.assertEqual(json.loads(meta[5:]), {
             "stage": "revise", "model": None, "usage": None, "cost_usd": None, "fake": True,
+        })
+
+    def test_revise_calls_the_configured_model_and_reports_its_cost(self):
+        calls = []
+
+        def model_reply(model, prompt, api_key):
+            calls.append((model, prompt, api_key))
+            return "```markdown\n校訂後の下書き\n```\n", {"prompt_tokens": 900, "cost": 0.02}
+
+        with unittest.mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key",
+                                                    "GEN_MODEL": "vendor/revise-model"}):
+            os.environ.pop("REVISE_FAKE_PATH", None)
+            with unittest.mock.patch.object(generate_post, "call_openrouter", model_reply), \
+                    contextlib.redirect_stdout(io.StringIO()) as stdout:
+                rc = generate_post.main([
+                    "--revise", str(self.draft), "--findings", str(self.report),
+                    "--out", str(self.out)])
+        self.assertEqual(rc, 0)
+        model, prompt, key = calls[0]
+        self.assertEqual((model, key), ("vendor/revise-model", "test-key"))
+        self.assertIn("教室", prompt)
+        self.assertEqual(self.out.read_text(encoding="utf-8"), "校訂後の下書き\n")
+        meta = [ln for ln in stdout.getvalue().splitlines() if ln.startswith("META ")][-1]
+        self.assertEqual(json.loads(meta[5:]), {
+            "stage": "revise", "model": "vendor/revise-model", "fake": False,
+            "cost_usd": 0.02, "usage": {"prompt_tokens": 900, "cost": 0.02},
         })
 
     def test_revise_without_key_or_fake_is_transport_error(self):
