@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-019-chiisana-shouri-wo-iwau",
+  "day": 19,
+  "post_sha256": "b403b8aa9b18f52ab05ac861888a2dcf786bfae9cae403915ab18361265a0991",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 87,
+    "regions": 87,
+    "ok": 87,
+    "ok_contextual": 81,
+    "ok_attested": 6,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
