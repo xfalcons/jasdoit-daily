@@ -1,16 +1,19 @@
 """State-machine tests for the daily-loop orchestrator on an isolated
-fixture repo with injected fake runners (no subprocess, no network). The
-real subprocess integration is measured by the sandbox end-to-end dry run
-in the engine runbook validation."""
+fixture repo with injected fake runners (no network). RevisionStageToolsTest
+additionally spawns the real generate-post.py and verify-post.py in their
+fake modes. The real subprocess integration is measured by the sandbox
+end-to-end dry run in the engine runbook validation."""
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +29,30 @@ _spec.loader.exec_module(daily_loop)
 NOW = "2026-11-22T07:00:00+08:00"  # day 19 morning in Taipei
 RAW_DRAFT = (FIXTURES / "day-019-chiisana-shouri-wo-iwau.md").read_text(encoding="utf-8")
 TTS_META = {"url": "https://pub.example/audio/day-019.mp3", "unannotated": ""}
+REVISED_RT = "<rt>なおした</rt>"
+DIVERGENT_FINDING = {
+    "line": 30, "col": 24, "surface": "教室", "rt": "きょうしち", "verdict": "divergent",
+    "reason": "unattested_reading",
+    "evidence": {"assembled": "きょうしち", "unidic": "キョウシツ", "tokens": ["教室"],
+                 "jmdict": [], "pykakasi": None},
+}
+
+
+def fix_one_rt(text: str) -> str:
+    """The smallest honest revision: one reading changes, nothing else."""
+    return re.sub(r"<rt>.*?</rt>", REVISED_RT, text, count=1)
+
+
+def malformed_on(text: str, needle: str) -> list[dict]:
+    """A malformed_ruby finding on the first line of `text` holding `needle`;
+    none once the post no longer carries `needle`."""
+    hits = [number for number, held in enumerate(text.split("\n"), start=1) if needle in held]
+    if not hits:
+        return []
+    return [{"line": hits[0], "col": None, "surface": needle[:60], "rt": None,
+             "verdict": "divergent", "reason": "malformed_ruby",
+             "evidence": {"assembled": None, "unidic": None, "tokens": [], "jmdict": [],
+                          "pykakasi": None}}]
 
 
 class FixtureRepo:
@@ -54,12 +81,20 @@ class FixtureRepo:
 
 class FakeRunners:
     """Sequenced fakes; each entry is a return code (or 'meta' for tts).
-    Records (stage, post-front-matter snapshot) per call."""
+    Records (stage, post-front-matter snapshot) per call. The reviser rewrites
+    the draft it is handed with `revise_text`; the annotator writes `findings`
+    (a list, or a function of the post text) into every report."""
 
-    def __init__(self, generate=None, annotate=None, gate=None, verify=None, tts=None):
+    def __init__(self, generate=None, annotate=None, gate=None, verify=None, tts=None,
+                 revise=None, findings=None):
         self.calls = []
         self.posts_seen = []
+        self.reviser_inputs = []
+        self.draft_text = RAW_DRAFT
+        self.revise_text = fix_one_rt
+        self.findings_of = findings if callable(findings) else (lambda text: list(findings or []))
         self.generate_codes = list(generate or [0])
+        self.revise_codes = list(revise or [0])
         self.annotate_codes = list(annotate or [0])
         self.gate_codes = list(gate or [0])
         self.verify_codes = list(verify or [0])
@@ -72,6 +107,7 @@ class FakeRunners:
     def make(self, sandbox, day):
         runners = daily_loop.Runners(
             generate=lambda draft, fewshot, digest: self.generate(draft),
+            revise=lambda draft, findings, out: self.revise(draft, findings, out),
             annotate=lambda post: self.annotate(post),
             gate=lambda post, json_out: self.gate(post, json_out),
             verify=lambda post, digest: self.verify(post),
@@ -82,8 +118,16 @@ class FakeRunners:
     def generate(self, draft):
         rc = self._next(self.generate_codes, "generate")
         if rc == 0:
-            draft.write_text(RAW_DRAFT, encoding="utf-8")
+            draft.write_text(self.draft_text, encoding="utf-8")
         return rc, "META {}" if rc == 0 else "", "", {"cost_usd": 0.012} if rc == 0 else None
+
+    def revise(self, draft, findings, out):
+        rc = self._next(self.revise_codes, "revise")
+        if rc == 0:
+            text = draft.read_text(encoding="utf-8")
+            self.reviser_inputs.append((text, findings.read_text(encoding="utf-8")))
+            out.write_text(self.revise_text(text), encoding="utf-8")
+        return rc, "META {}" if rc == 0 else "", "", {"cost_usd": 0.006} if rc == 0 else None
 
     def annotate(self, post):
         text = post.read_text(encoding="utf-8")
@@ -91,7 +135,8 @@ class FakeRunners:
         report = post.parents[2] / "data" / "annotations" / f"{post.stem}.json"
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(json.dumps(
-            {"post": post.name, "post_sha256": daily_loop.sha256_text(text)}),
+            {"post": post.name, "post_sha256": daily_loop.sha256_text(text),
+             "findings": self.findings_of(text)}),
             encoding="utf-8")
         rc = self._next(self.annotate_codes, "annotate")
         return rc, "", "", None
@@ -115,7 +160,7 @@ class FakeRunners:
         return rc, "", "", meta
 
 
-def run(repo, runners, *, day=None, env=None, live=False, dry=True):
+def run(repo, runners, *, day=None, env=None, live=False, dry=True, factory=None):
     args = SimpleNamespace(day=day, live=live, dry_run=dry)
     out = io.StringIO()
     merged = {"LOOP_NOW": NOW, **(env or {})}
@@ -124,7 +169,7 @@ def run(repo, runners, *, day=None, env=None, live=False, dry=True):
         merged.setdefault("VERIFY_MODEL", "openai/gpt-4o")
     code, loop = daily_loop.run_engine(
         args, merged, out=out, repo_root=repo.root,
-        runners_factory=lambda sandbox, d: runners.make(sandbox, d),
+        runners_factory=factory or (lambda sandbox, d: runners.make(sandbox, d)),
     )
     return code, loop, out.getvalue()
 
@@ -142,6 +187,9 @@ class HappyPathTest(unittest.TestCase):
             self.assertEqual(loop.stage_reached, "finalize")
             self.assertEqual(loop.audio_url, TTS_META["url"])
             self.assertEqual(loop.record_dict["cost_usd"], 0.016)
+            self.assertFalse(loop.record_dict["revised"])
+            self.assertIsNone(loop.record_dict["revision_cost_usd"])
+            self.assertNotIn("revise", runners.calls)
             for stage in ("select", "generate", "annotate", "gate", "verify", "tts", "finalize"):
                 self.assertIn(f"== stage: {stage} ==", transcript)
             self.assertIn("DISARMED:", transcript.splitlines()[-1])
@@ -232,14 +280,6 @@ class FailTransitionTest(unittest.TestCase):
             self.assertEqual(runners.calls.count("generate"), 2)
             self.assertNotIn("DISARMED:", transcript)
 
-    def test_divergent_annotation_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = FixtureRepo(Path(tmp))
-            runners = FakeRunners(annotate=[2])
-            code, loop, _ = run(repo, runners)
-            self.assertEqual(code, 2)
-            self.assertEqual(loop.reasons, ["annotation_divergent"])
-
     def test_gate_fail_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = FixtureRepo(Path(tmp))
@@ -304,6 +344,196 @@ class ExecutionTierTest(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(loop.reasons, ["tts_error"])
             self.assertEqual(runners.calls.count("tts"), 1)
+
+
+class RevisionTest(unittest.TestCase):
+    """A divergent draft annotate gets exactly one reading revision and one
+    re-check; nothing after the draft annotate ever revises again."""
+
+    def test_divergent_draft_recovers_and_the_run_continues(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            before = repo.tree_files()
+            runners = FakeRunners(annotate=[2, 0], findings=[DIVERGENT_FINDING])
+            code, loop, transcript = run(repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            self.assertEqual(loop.reasons, [])
+            self.assertEqual(loop.stage_reached, "finalize")
+            self.assertEqual(loop.audio_url, TTS_META["url"])
+            self.assertTrue(loop.record_dict["revised"])
+            self.assertEqual(runners.calls.count("revise"), 1)
+            draft, report = runners.reviser_inputs[0]
+            self.assertEqual(draft, runners.posts_seen[0])
+            self.assertEqual(json.loads(report)["findings"], [DIVERGENT_FINDING])
+            self.assertEqual(runners.posts_seen[1], fix_one_rt(draft))
+            final = runners.posts_seen[-1]
+            self.assertIn(REVISED_RT, final)
+            self.assertIn("status: pass", final)
+            self.assertIn(f"audio_url: {TTS_META['url']}", final)
+            self.assertIn("revising the flagged readings once", transcript)
+            self.assertEqual(repo.tree_files(), before)
+
+    def test_revision_cost_lands_in_the_record_and_sums(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 0)
+            self.assertAlmostEqual(loop.record_dict["revision_cost_usd"], 0.006)
+            self.assertAlmostEqual(loop.record_dict["cost_usd"], 0.012 + 0.006 + 0.004)
+
+    def test_low_confidence_after_the_revision_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 3])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "flag")
+            self.assertEqual(loop.reasons, ["low_confidence"])
+            self.assertTrue(loop.record_dict["revised"])
+
+    def test_revision_touching_prose_fails_before_any_later_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            before = repo.tree_files()
+            runners = FakeRunners(annotate=[2, 0])
+            runners.revise_text = lambda text: text.replace("百日挑戰", "二百日挑戰", 1)
+            code, loop, transcript = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.result, "fail")
+            self.assertEqual(loop.reasons, ["revision_violation"])
+            self.assertEqual(loop.stage_reached, "annotate")
+            self.assertFalse(loop.record_dict["revised"])
+            for stage in ("gate", "verify", "tts"):
+                self.assertNotIn(stage, runners.calls)
+            self.assertIn("revision changed line", transcript)
+            self.assertEqual(repo.tree_files(), before)
+
+    def test_second_divergence_fails_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 2], findings=[DIVERGENT_FINDING])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["revision_failed"])
+            self.assertEqual(runners.calls.count("revise"), 1)
+            self.assertEqual(runners.calls.count("annotate"), 2)
+            for stage in ("gate", "verify", "tts"):
+                self.assertNotIn(stage, runners.calls)
+
+    def test_divergence_after_the_revision_never_revises_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0, 2])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["annotation_divergent"])
+            self.assertEqual(runners.calls.count("revise"), 1)
+            self.assertEqual(loop.stage_reached, "finalize")
+
+    def test_annotator_execution_errors_never_revise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[1])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(loop.reasons, ["annotation_error"])
+            self.assertNotIn("revise", runners.calls)
+            runners = FakeRunners(annotate=[2, 1])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(loop.reasons, ["annotation_error"])
+
+    def test_failed_reviser_is_revision_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0], revise=[1])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(loop.reasons, ["revision_failed"])
+            self.assertEqual(runners.calls.count("revise"), 1)
+            runners = FakeRunners(annotate=[2, 0], revise=[4, 4])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(loop.reasons, ["revision_failed"])
+            self.assertEqual(runners.calls.count("revise"), 2)
+            self.assertEqual(runners.calls.count("annotate"), 1)
+
+    def test_reviser_transport_error_retries_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0], revise=[4, 0])
+            code, loop, _ = run(repo, runners)
+            self.assertEqual((code, loop.result), (0, "pass"))
+            self.assertEqual(runners.calls.count("revise"), 2)
+
+    BROKEN_RUBY = '<ruby>街<rt>まち</rt></ruby>'
+    WHOLE_RUBY = '<ruby>街<rp>（</rp><rt>まち</rt><rp>）</rp></ruby>'
+
+    def repair_run(self, findings):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0], findings=findings)
+            runners.draft_text = RAW_DRAFT.replace(
+                "<!-- more -->", f"<!-- more -->\n\n今日は{self.BROKEN_RUBY}を歩いた。", 1)
+            runners.revise_text = lambda text: text.replace(self.BROKEN_RUBY, self.WHOLE_RUBY)
+            code, loop, _ = run(repo, runners)
+            return code, loop, runners
+
+    def test_malformed_ruby_line_is_repaired_and_allowed_to_differ(self):
+        code, loop, runners = self.repair_run(lambda text: malformed_on(text, self.BROKEN_RUBY))
+        self.assertEqual((code, loop.result), (0, "pass"))
+        self.assertIn(self.WHOLE_RUBY, runners.posts_seen[-1])
+
+    def test_the_same_repair_without_a_malformed_finding_is_a_violation(self):
+        code, loop, runners = self.repair_run(None)
+        self.assertEqual((code, loop.result), (2, "fail"))
+        self.assertEqual(loop.reasons, ["revision_violation"])
+        self.assertEqual(runners.calls.count("revise"), 1)
+
+
+class RevisionStageToolsTest(unittest.TestCase):
+    """The revision round through the real stage tools: generate-post.py (fake
+    generation, then fake revision) and verify-post.py run as subprocesses
+    from the real runners; annotate, gate and tts stay fakes."""
+
+    def test_real_tools_carry_the_revision_round_to_a_pass(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as fake_tmp:
+            repo = FixtureRepo(Path(tmp))
+            shutil.copytree(ROOT / "tools", repo.root / "tools",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            before = repo.tree_files()
+            fakes = Path(fake_tmp)
+            (fakes / "draft.md").write_text(RAW_DRAFT, encoding="utf-8")
+            runners = FakeRunners(annotate=[2, 0], findings=[DIVERGENT_FINDING])
+            fake_annotate = runners.annotate
+
+            def annotate_staging_the_revision(post):
+                # The diverging post is also what a perfect reviser hands back,
+                # with one reading corrected.
+                (fakes / "revised.md").write_text(
+                    fix_one_rt(post.read_text(encoding="utf-8")), encoding="utf-8")
+                return fake_annotate(post)
+
+            runners.annotate = annotate_staging_the_revision
+            fake_env = {"GEN_FAKE_PATH": str(fakes / "draft.md"),
+                        "REVISE_FAKE_PATH": str(fakes / "revised.md"),
+                        "VERIFY_FAKE_PATH": str(FIXTURES / "verify-pass.txt")}
+
+            def factory(sandbox, day):
+                real = daily_loop.subprocess_runners(sandbox, day)
+                return daily_loop.Runners(generate=real.generate, revise=real.revise,
+                                          annotate=runners.annotate, gate=runners.gate,
+                                          verify=real.verify,
+                                          tts=lambda post, dry: runners.tts(post))
+
+            with unittest.mock.patch.dict(os.environ, fake_env):
+                code, loop, transcript = run(repo, runners, env=fake_env, factory=factory)
+            self.assertEqual(code, 0, transcript)
+            self.assertEqual(loop.result, "pass")
+            self.assertTrue(loop.revised)
+            self.assertEqual(runners.posts_seen[1], fix_one_rt(runners.posts_seen[0]))
+            self.assertEqual(transcript.count("draft written:"), 2)
+            for stage in ("gate", "verify", "tts", "finalize"):
+                self.assertIn(f"== stage: {stage} ==", transcript)
+            self.assertEqual(repo.tree_files(), before)
 
 
 class FlagTransitionTest(unittest.TestCase):
@@ -642,7 +872,8 @@ class StateSchemaTest(unittest.TestCase):
             _, loop, _ = run(repo, FakeRunners())
             record = loop.record_dict
             for key in ("ts", "day", "live", "result", "reasons", "model_gen",
-                        "model_verify", "stage_reached", "audio_url", "cost_usd", "latency_ms"):
+                        "model_verify", "stage_reached", "audio_url", "cost_usd",
+                        "revised", "revision_cost_usd", "latency_ms"):
                 self.assertIn(key, record)
             self.assertEqual(record["day"], 19)
             self.assertFalse(record["live"])
@@ -883,6 +1114,69 @@ class LivePublishTest(unittest.TestCase):
             return rc, stdout, stderr, {**(meta or {}), "fake": True}
 
         runners.generate = generate_with_fake_meta
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["fake_mode_in_live"])
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+
+    def test_revised_draft_pass_publishes_the_revised_post_and_its_record(self):
+        runners = FakeRunners(annotate=[2, 0], findings=[DIVERGENT_FINDING])
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            posts = [n for n in self.repo.origin_git(
+                "ls-tree", "--name-only", "main:source/_posts").stdout.split()
+                if n.startswith("day-019-")]
+            self.assertEqual(len(posts), 1, posts)
+            self.assertIn(REVISED_RT, self.repo.origin_show("main", "source/_posts/" + posts[0]))
+            record = json.loads(self.repo.origin_show(
+                "main", "data/loop-log.jsonl").splitlines()[0])
+            self.assertEqual(record["result"], "pass")
+            self.assertTrue(record["revised"])
+            self.assertAlmostEqual(record["revision_cost_usd"], 0.006)
+            self.assertAlmostEqual(record["cost_usd"], 0.012 + 0.006 + 0.004)
+            self.assertEqual(stub.create_calls(), [])
+            self.assert_ambient_untouched()
+
+    def test_revision_violation_commits_the_ledger_only(self):
+        runners = FakeRunners(annotate=[2, 0])
+        runners.revise_text = lambda text: text.replace("百日挑戰", "二百日挑戰", 1)
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, transcript = run_live(self.repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["revision_violation"])
+            self.assertEqual(self.repo.origin_subjects()[0], "loop: day 019 fail ledger")
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+            self.assertEqual(
+                self.repo.origin_git("branch", "--list", "loop/day-019*").stdout.split(), [])
+            self.assertEqual(stub.create_calls(), [])
+            self.assert_ambient_untouched()
+
+    def test_live_run_refuses_revise_fake_env(self):
+        runners = FakeRunners()
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, transcript = run_live(
+                self.repo, runners,
+                env={"REVISE_FAKE_PATH": str(FIXTURES / "verify-pass.txt")})
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["fake_mode_in_live"])
+            self.assertEqual(runners.calls, [])
+
+    def test_live_run_refuses_fake_revision_metadata(self):
+        runners = FakeRunners(annotate=[2, 0])
+        original_revise = runners.revise
+
+        def revise_with_fake_meta(draft, findings, out):
+            rc, stdout, stderr, meta = original_revise(draft, findings, out)
+            return rc, stdout, stderr, {**(meta or {}), "fake": True}
+
+        runners.revise = revise_with_fake_meta
         with gh_on_path(GhStub(Path(self.tmp.name))):
             code, loop, transcript = run_live(self.repo, runners)
             self.assertEqual(code, 2)

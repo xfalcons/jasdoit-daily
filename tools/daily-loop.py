@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Daily-loop orchestrator: stages 1-7 for one day (agent-loop-design.md
-section 2, as amended 2026-11-21).
+section 2, as amended 2026-11-22).
 
 One command runs select, generate, annotate, gate, verify, tts, finalize,
-publish, log for a single day. All engine policy lives here.
+publish, log for a single day. All engine policy lives here. A divergent
+annotate gets exactly one reading revision (evidence from the annotation
+report, <rt> readings only) before the run fails.
 
 Every run executes inside a temp sandbox (amendment 1): posts, annotations,
 the theme table, tools and the ledger are copied to mkdtemp and each stage
@@ -49,6 +51,7 @@ RESULT_ORDER = {"pass": 0, "flag": 1, "fail": 2}
 STAGE_ORDER = ["noop", "select", "generate", "annotate", "gate", "verify", "tts",
                "finalize", "publish", "log"]
 STATE_SCHEMA = 1
+FAKE_PATH_KEYS = ("GEN_FAKE_PATH", "VERIFY_FAKE_PATH", "REVISE_FAKE_PATH")
 DISARMED_BANNER = "DISARMED: engine not armed for live; nothing was committed, pushed, or uploaded."
 DEGRADE_BLOCK_BANNER = ("DEGRADE: engine degraded; schedule runs stay dry until 2 manual "
                         "dispatch PASS runs recover it")
@@ -454,6 +457,7 @@ def revision_violation(original: str, revised: str, repair_lines: set[int]) -> i
 @dataclass
 class Runners:
     generate: object
+    revise: object
     annotate: object
     gate: object
     verify: object
@@ -482,6 +486,10 @@ def subprocess_runners(sandbox: Path, day: int) -> Runners:
             cmd += ["--digest", str(digest)]
         return _spawn(cmd, sandbox)
 
+    def revise(draft: Path, findings: Path, out: Path):
+        return _spawn([str(tools / "generate-post.py"), "--revise", str(draft),
+                       "--findings", str(findings), "--out", str(out)], sandbox)
+
     def annotate(post: Path):
         return _spawn([str(tools / "annotate-post.py"), str(post)], sandbox)
 
@@ -501,7 +509,8 @@ def subprocess_runners(sandbox: Path, day: int) -> Runners:
             cmd.append("--dry-run")
         return _spawn(cmd, sandbox)
 
-    return Runners(generate=generate, annotate=annotate, gate=gate, verify=verify, tts=tts)
+    return Runners(generate=generate, revise=revise, annotate=annotate, gate=gate,
+                   verify=verify, tts=tts)
 
 
 def gate_soft_reasons(report_path: Path) -> list[str]:
@@ -560,6 +569,8 @@ class Loop:
     audio_url: str | None = None
     models: dict = field(default_factory=dict)
     cost_usd: float | None = None
+    revised: bool = False
+    revision_cost_usd: float | None = None
     stage_ms: dict = field(default_factory=dict)
     result: str = "pass"
     _stage_start: float = 0.0
@@ -595,6 +606,8 @@ class Loop:
             "stage_reached": self.stage_reached,
             "audio_url": self.audio_url,
             "cost_usd": self.cost_usd,
+            "revised": self.revised,
+            "revision_cost_usd": self.revision_cost_usd,
             "latency_ms": sum(self.stage_ms.values()),
         }
 
@@ -603,7 +616,7 @@ class Loop:
         day_date = date(*anchor) + timedelta(days=self.day - 1)
 
         self.stage("select")
-        if self.live and (self.env.get("GEN_FAKE_PATH") or self.env.get("VERIFY_FAKE_PATH")):
+        if self.live and any(self.env.get(key) for key in FAKE_PATH_KEYS):
             raise FailRun("fake_mode_in_live")
         row = loop_support.parse_theme_row(theme_text, self.day)
         if row is None:
@@ -646,7 +659,9 @@ class Loop:
         self.say(f"post composed: {self.stem} ({len(body)} chars body)")
         self.stage_done("generate")
 
-        self.run_annotate(self.post)
+        # Draft-only: by finalize the body is verified and audio-locked, so a
+        # divergence there stays annotation_divergent.
+        self.run_annotate(self.post, revise=True)
         self.run_gate(self.post, "gate-draft.json")
 
         self.stage("verify")
@@ -732,10 +747,16 @@ class Loop:
             break
         self.stage_done("finalize")
 
-    def run_annotate(self, post: Path) -> None:
+    def run_annotate(self, post: Path, *, revise: bool = False) -> None:
         self.stage("annotate")
         rc, stdout, stderr, meta = self.runners.annotate(post)
         self.echo(stdout, stderr)
+        if rc == 2 and revise:
+            self.revise_readings(post)
+            rc, stdout, stderr, meta = self.runners.annotate(post)
+            self.echo(stdout, stderr)
+            if rc == 2:
+                raise FailRun("revision_failed")
         if rc == 2:
             raise FailRun("annotation_divergent")
         if rc != 0 and rc != 3:
@@ -743,6 +764,30 @@ class Loop:
         if rc == 3:
             self.flag("low_confidence")
         self.stage_done("annotate")
+
+    def revise_readings(self, post: Path) -> None:
+        report = self.sandbox / "data" / "annotations" / f"{self.stem}.json"
+        revised = self.sandbox / "post-revised.md"
+        self.say("annotate divergent: revising the flagged readings once")
+        rc, stdout, stderr, meta = self.retry_transport(
+            lambda: self.runners.revise(post, report, revised)
+        )
+        self.echo(stdout, stderr)
+        if rc != 0:
+            raise FailRun("revision_failed")
+        if self.live and meta and meta.get("fake"):
+            raise FailRun("fake_mode_in_live")
+        original = post.read_text(encoding="utf-8")
+        text = revised.read_text(encoding="utf-8")
+        changed = revision_violation(original, text, malformed_ruby_lines(report))
+        if changed is not None:
+            self.say(f"revision changed line {changed} outside <rt> readings; rejected")
+            raise FailRun("revision_violation")
+        post.write_text(text, encoding="utf-8")
+        self.revised = True
+        if meta and meta.get("cost_usd") is not None:
+            self.revision_cost_usd = meta["cost_usd"]
+            self.cost_usd = (self.cost_usd or 0) + meta["cost_usd"]
 
     def run_gate(self, post: Path, report_name: str) -> None:
         self.stage("gate")
@@ -1000,7 +1045,7 @@ def run_engine(args, env, out=sys.stdout, repo_root: Path | None = None,
     repo_root = repo_root or Path(__file__).resolve().parent.parent
     loop_support.load_dotenv(repo_root)
     env = {**dict(os.environ), **env}
-    for key in ("GEN_FAKE_PATH", "VERIFY_FAKE_PATH"):
+    for key in FAKE_PATH_KEYS:
         raw_path = env.get(key)
         if raw_path and not Path(raw_path).is_absolute():
             # Stage tools run with cwd=sandbox; a relative fake path would
