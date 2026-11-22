@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import loop_support
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "openai/gpt-4o"
+DEFAULT_MODEL = "openai/gpt-6.1-sol"
 TRANSPORT = 4
 VERDICT_LINE_RE = re.compile(r"VERDICT:\s*(PASS|FLAG|FAIL)\s*")
 EXIT_OF_VERDICT = {"PASS": 0, "FLAG": 3, "FAIL": 2}

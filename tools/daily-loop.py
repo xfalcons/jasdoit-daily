@@ -44,7 +44,7 @@ import loop_support
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 DEFAULT_GEN_MODEL = "z-ai/glm-5.3"
-DEFAULT_VERIFY_MODEL = "openai/gpt-4o"
+DEFAULT_VERIFY_MODEL = "openai/gpt-6.1-sol"
 RESULT_ORDER = {"pass": 0, "flag": 1, "fail": 2}
 STAGE_ORDER = ["noop", "select", "generate", "annotate", "gate", "verify", "tts",
                "finalize", "publish", "log"]

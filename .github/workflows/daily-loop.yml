@@ -61,6 +61,8 @@ jobs:
           LOOP_DISPATCH_LIVE: ${{ inputs.live }}
           ENGINE_LIVE: ${{ vars.ENGINE_LIVE }}
           R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          GEN_MODEL: ${{ vars.GEN_MODEL }}
+          VERIFY_MODEL: ${{ vars.VERIFY_MODEL }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
