@@ -383,6 +383,16 @@ class RevisionTest(unittest.TestCase):
             self.assertAlmostEqual(loop.record_dict["revision_cost_usd"], 0.006)
             self.assertAlmostEqual(loop.record_dict["cost_usd"], 0.012 + 0.006 + 0.004)
 
+    def test_a_rejected_revision_is_still_charged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(annotate=[2, 0])
+            runners.revise_text = lambda text: text.replace("百日挑戰", "二百日挑戰", 1)
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(loop.reasons, ["revision_violation"])
+            self.assertAlmostEqual(loop.record_dict["revision_cost_usd"], 0.006)
+            self.assertAlmostEqual(loop.record_dict["cost_usd"], 0.012 + 0.006)
+
     def test_low_confidence_after_the_revision_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = FixtureRepo(Path(tmp))

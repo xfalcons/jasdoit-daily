@@ -777,6 +777,10 @@ class Loop:
             raise FailRun("revision_failed")
         if self.live and meta and meta.get("fake"):
             raise FailRun("fake_mode_in_live")
+        # The call was paid for whether or not the revision is adopted.
+        if meta and meta.get("cost_usd") is not None:
+            self.revision_cost_usd = (self.revision_cost_usd or 0) + meta["cost_usd"]
+            self.cost_usd = (self.cost_usd or 0) + meta["cost_usd"]
         original = post.read_text(encoding="utf-8")
         text = revised.read_text(encoding="utf-8")
         changed = revision_violation(original, text, malformed_ruby_lines(report))
@@ -785,9 +789,6 @@ class Loop:
             raise FailRun("revision_violation")
         post.write_text(text, encoding="utf-8")
         self.revised = True
-        if meta and meta.get("cost_usd") is not None:
-            self.revision_cost_usd = meta["cost_usd"]
-            self.cost_usd = (self.cost_usd or 0) + meta["cost_usd"]
 
     def run_gate(self, post: Path, report_name: str) -> None:
         self.stage("gate")

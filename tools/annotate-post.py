@@ -33,14 +33,17 @@ RT_SCRIPT = re.compile(r"[ぁ-ゖァ-ヶー]+")
 # A ruby base may carry kanji, kana, the long-vowel mark and digits. Anything
 # else in a base (punctuation, spaces, Latin) marks a phrase wrongly wrapped
 # in one ruby, which only a markup repair can fix.
-BASE_SCRIPT = re.compile(r"[㐀-鿿々ぁ-ゖァ-ヶー0-9０-９]+")
-# Free reading variants, folded on both sides before comparison. っぷん and
-# うふん are both standard for minute counters above ten, and JMdict has no
-# entry for 三十分 or 二十分 to attest the っぷん form.
-READING_VARIANTS = ((re.compile("っぷん"), "うふん"),)
+KANJI_CLASS = "㐀-鿿々\U00020000-\U000323af豈-﫿"
+BASE_SCRIPT = re.compile(f"[{KANJI_CLASS}ぁ-ゖァ-ヶー0-9０-９]+")
+# Free variants of the ten-based minute counters (十分, 二十分, 三十分 ...):
+# じっぷん, じゅっぷん and じゅうふん are all standard, and JMdict has no entry
+# for the compounds above 十分 to attest them. The shapes carry the limit: 一分,
+# 六分 and 鬱憤 never take these forms, so a wrong reading still differs.
+READING_VARIANTS = ((re.compile("じっぷん"), "じゅっぷん"),
+                    (re.compile("ゅっぷん"), "ゅうふん"))
 KANA_SCRIPT = re.compile(r"[ぁ-ゖァ-ヶー]")
 KANA_SEQ = re.compile(r"[ぁ-ゖァ-ヶー]+")
-KANJI_RE = re.compile("[㐀-鿿々\U00020000-\U000323af\uf900-\ufaff]")
+KANJI_RE = re.compile(f"[{KANJI_CLASS}]")
 DAY_RE = re.compile(r"^day:\s*(\d+)\s*$", re.M)
 
 # Long o is written う (コー -> こう) per standard kana orthography; the o
