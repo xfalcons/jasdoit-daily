@@ -15,8 +15,10 @@ network, no key needed).
 
 --revise is the second mode and excludes --day/--fewshot/--digest. Its
 prompt carries the whole draft plus every finding of the annotate-post
-report with its evidence, and asks for corrected <rt> readings only.
-REVISE_FAKE_PATH mirrors GEN_FAKE_PATH for it.
+report with its evidence, and asks for corrected <rt> readings only. The
+revision keeps the draft's own file ending, because the orchestrator
+compares the two byte for byte outside <rt> readings. REVISE_FAKE_PATH
+mirrors GEN_FAKE_PATH for it.
 
 Exit codes: 0 draft written, 1 usage error, 4 transport/model error.
 The last stdout line is one META json object.
@@ -170,24 +172,35 @@ def parse_args(argv):
     return args
 
 
-def revision_prompt(draft_path: Path, report_path: Path) -> str | None:
-    """The revision prompt, or None once the usage error is printed."""
+def match_file_tail(draft: str, revised: str) -> str:
+    """Give the revision the draft's own closing newline. Chat completions
+    often drop it or pad it with blank lines, and the orchestrator compares
+    the two byte for byte outside <rt> readings. The last line itself stays
+    the model's, so a real edit there still fails that comparison."""
+    ending = "\n" if draft.endswith("\n") else ""
+    return revised.rstrip("\n") + ending
+
+
+def revision_inputs(draft_path: Path, report_path: Path) -> tuple[str, str] | None:
+    """(prompt, draft), or None once the usage error is printed."""
     try:
         draft = draft_path.read_text(encoding="utf-8")
         findings = json.loads(report_path.read_text(encoding="utf-8"))["findings"]
         if not findings:
             print("generate-post: the findings report carries no findings", file=sys.stderr)
             return None
-        return build_revision_prompt(draft, findings)
+        return build_revision_prompt(draft, findings), draft
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"generate-post: cannot read the draft or the findings report: {exc}",
               file=sys.stderr)
         return None
 
 
-def complete(fake_key: str, prompt: str | None, out: Path, meta: dict) -> int:
+def complete(fake_key: str, prompt: str | None, out: Path, meta: dict,
+             shape=strip_outer_fence) -> int:
     """With the fake env set, copy its fixture; otherwise answer `prompt` with
-    one model call. Either way the draft lands at `out` behind one META line."""
+    one model call and turn the content into a draft with `shape`. Either way
+    the draft lands at `out` behind one META line."""
     fake = os.environ.get(fake_key)
     if fake:
         try:
@@ -208,7 +221,7 @@ def complete(fake_key: str, prompt: str | None, out: Path, meta: dict) -> int:
         except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError, OSError) as exc:
             print(f"generate-post: model/transport error: {exc}", file=sys.stderr)
             return TRANSPORT
-        draft = strip_outer_fence(content)
+        draft = shape(content)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(draft, encoding="utf-8")
@@ -226,10 +239,12 @@ def main(argv=None) -> int:
     loop_support.load_dotenv(repo_root)
 
     if args.revise is not None:
-        prompt = revision_prompt(args.revise, args.findings)
-        if prompt is None:
+        revision = revision_inputs(args.revise, args.findings)
+        if revision is None:
             return 1
-        return complete("REVISE_FAKE_PATH", prompt, args.out, {"stage": "revise"})
+        prompt, draft = revision
+        return complete("REVISE_FAKE_PATH", prompt, args.out, {"stage": "revise"},
+                        shape=lambda content: match_file_tail(draft, strip_outer_fence(content)))
 
     theme_path = repo_root / "aidd-docs" / "references" / "japanese-theme-rotation.md"
     try:

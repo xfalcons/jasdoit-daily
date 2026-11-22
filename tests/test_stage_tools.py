@@ -109,6 +109,20 @@ class BuildRevisionPromptTest(unittest.TestCase):
             self.assertIn(expected, prompt)
 
 
+class FileTailTest(unittest.TestCase):
+    def test_revision_takes_the_drafts_own_closing_newline(self):
+        match = generate_post.match_file_tail
+        self.assertEqual(match("下書き\n", "校訂後の下書き"), "校訂後の下書き\n")
+        self.assertEqual(match("下書き\n", "校訂後の下書き\n\n\n"), "校訂後の下書き\n")
+        self.assertEqual(match("下書き", "校訂後の下書き\n"), "校訂後の下書き")
+
+    def test_last_line_is_left_to_the_invariant(self):
+        match = generate_post.match_file_tail
+        self.assertEqual(match("下書き\n", "校訂後の下書き\n以上です。\n"),
+                         "校訂後の下書き\n以上です。\n")
+        self.assertEqual(match("下書き  \n", "校訂後の下書き  \n"), "校訂後の下書き  \n")
+
+
 def run_tool(script, args, env_extra):
     env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
     env.update(env_extra)
@@ -163,7 +177,7 @@ class RevisionModeTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.draft = self.root / "draft.md"
-        self.draft.write_text("下書き", encoding="utf-8")
+        self.draft.write_text("下書き\n", encoding="utf-8")
         self.report = self.root / "report.json"
         self.report.write_text(json.dumps({"findings": DIVERGENT_FINDINGS}), encoding="utf-8")
         self.out = self.root / "out" / "revised.md"
@@ -193,7 +207,7 @@ class RevisionModeTest(unittest.TestCase):
 
         def model_reply(model, prompt, api_key):
             calls.append((model, prompt, api_key))
-            return "```markdown\n校訂後の下書き\n```\n", {"prompt_tokens": 900, "cost": 0.02}
+            return "校訂後の下書き", {"prompt_tokens": 900, "cost": 0.02}
 
         with unittest.mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key",
                                                     "GEN_MODEL": "vendor/revise-model"}):
@@ -207,7 +221,8 @@ class RevisionModeTest(unittest.TestCase):
         model, prompt, key = calls[0]
         self.assertEqual((model, key), ("vendor/revise-model", "test-key"))
         self.assertIn("教室", prompt)
-        self.assertEqual(self.out.read_text(encoding="utf-8"), "校訂後の下書き\n")
+        self.assertEqual(self.out.read_text(encoding="utf-8"), "校訂後の下書き\n",
+                         "a reply without the closing newline takes the draft's")
         meta = [ln for ln in stdout.getvalue().splitlines() if ln.startswith("META ")][-1]
         self.assertEqual(json.loads(meta[5:]), {
             "stage": "revise", "model": "vendor/revise-model", "fake": False,
