@@ -263,3 +263,26 @@ class RevisionModeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RubyBaseRuleTest(unittest.TestCase):
+    """Both prompts state the ruby-base rule a real draft broke on 2026-11-22."""
+
+    ROW = loop_support.ThemeRow(20, "二十日の軌道修正", "檢視節奏，微調不重來",
+                                "進む方向は、少しずつ直していけばいい。")
+
+    def test_generation_prompt_keeps_each_ruby_base_to_one_word(self):
+        prompt = generate_post.build_prompt("persona", self.ROW, 20, False, "gold", [])
+        self.assertIn("ruby 的 base", prompt)
+        self.assertIn("助詞、標點、其他詞一律放在 ruby 之外", prompt)
+
+    def test_revision_prompt_teaches_base_narrowing_on_repair_lines(self):
+        finding = {"line": 99, "surface": "これからも、日本語", "rt": "にほんご",
+                  "verdict": "divergent", "reason": "malformed_ruby",
+                  "evidence": {"assembled": "にほんご", "unidic": "コレカラモ、ニッポンゴ",
+                               "tokens": ["これからも、", "日本語"], "jmdict": [],
+                               "pykakasi": "コレカラモ、ニホンゴ"}}
+        prompt = generate_post.build_revision_prompt("draft", [finding])
+        self.assertIn("base 只能是一個漢字詞", prompt)
+        self.assertIn("把多餘的文字移到 ruby 之外", prompt)
+        self.assertIn("`<rt>` 內不可出現標點或漢字", prompt)

@@ -30,6 +30,14 @@ RUBY_RE = re.compile(
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"[ \t　]")
 RT_SCRIPT = re.compile(r"[ぁ-ゖァ-ヶー]+")
+# A ruby base may carry kanji, kana, the long-vowel mark and digits. Anything
+# else in a base (punctuation, spaces, Latin) marks a phrase wrongly wrapped
+# in one ruby, which only a markup repair can fix.
+BASE_SCRIPT = re.compile(r"[㐀-鿿々ぁ-ゖァ-ヶー0-9０-９]+")
+# Free reading variants, folded on both sides before comparison. っぷん and
+# うふん are both standard for minute counters above ten, and JMdict has no
+# entry for 三十分 or 二十分 to attest the っぷん form.
+READING_VARIANTS = ((re.compile("っぷん"), "うふん"),)
 KANA_SCRIPT = re.compile(r"[ぁ-ゖァ-ヶー]")
 KANA_SEQ = re.compile(r"[ぁ-ゖァ-ヶー]+")
 KANJI_RE = re.compile("[㐀-鿿々\U00020000-\U000323af\uf900-\ufaff]")
@@ -177,7 +185,8 @@ def parse_line(line: str, line_no: int) -> tuple[str | None, list[RubySpan], Fin
         pos = m.end()
     plain_parts.append(strip_markup(line[pos:]))
     for span in spans:
-        if not span.surface or not span.rt or not RT_SCRIPT.fullmatch(span.rt):
+        if (not span.surface or not span.rt or not RT_SCRIPT.fullmatch(span.rt)
+                or not BASE_SCRIPT.fullmatch(span.surface)):
             return None, [], malformed(line_no, line)
     return "".join(plain_parts), spans, None
 
@@ -264,7 +273,10 @@ def normalize(kana: str) -> str:
                 out.append(LONG_VOWEL_OF[vowel])
                 continue
         out.append(ch)
-    return "".join(out)
+    text = "".join(out)
+    for variant, replacement in READING_VARIANTS:
+        text = variant.sub(replacement, text)
+    return text
 
 
 def to_katakana(text: str) -> str:
