@@ -546,6 +546,65 @@ class PostCompositionTest(unittest.TestCase):
         self.assertEqual(daily_loop.romaji_slug("小さな勝利を祝う"), "post")
 
 
+class RevisionInvariantTest(unittest.TestCase):
+    """The revision invariant on a hand-written post: readings may change
+    anywhere, everything else only on a line flagged malformed_ruby."""
+
+    ORIGINAL = (
+        "---\nday: 19\n---\n"
+        '<ruby>海<rp>（</rp><rt>うみ</rt><rp>）</rp></ruby>を見た。\n'
+        "<ruby>空<rp>（</rp><rt>そら</rt><rp>）</rp></ruby>は青い。\n"
+    )
+    BROKEN = ORIGINAL.replace('<ruby>海<rp>（</rp><rt>うみ</rt>', '<ruby>海<rt>うみ</rt>')
+
+    def violation(self, revised, repair_lines=frozenset()):
+        return daily_loop.revision_violation(self.ORIGINAL, revised, repair_lines)
+
+    def test_identical_text_passes(self):
+        self.assertIsNone(self.violation(self.ORIGINAL))
+
+    def test_changed_readings_pass_on_every_line(self):
+        revised = self.ORIGINAL.replace("<rt>うみ</rt>", "<rt>かい</rt>").replace(
+            "<rt>そら</rt>", "<rt>くう</rt>")
+        self.assertIsNone(self.violation(revised))
+
+    def test_prose_change_reports_its_line(self):
+        self.assertEqual(self.violation(self.ORIGINAL.replace("青い", "赤い")), 5)
+
+    def test_markup_change_around_a_reading_reports_its_line(self):
+        without_rp = self.ORIGINAL.replace('<rp>（</rp><rt>うみ</rt>', "<rt>うみ</rt>")
+        self.assertEqual(self.violation(without_rp), 4)
+
+    def test_added_or_removed_line_is_a_violation(self):
+        added = self.ORIGINAL + "追加の一行。\n"
+        removed = self.ORIGINAL.replace(
+            "<ruby>空<rp>（</rp><rt>そら</rt><rp>）</rp></ruby>は青い。\n", "")
+        self.assertEqual(self.violation(added), 6)
+        self.assertEqual(self.violation(removed), 5)
+
+    def test_dropped_final_newline_is_a_violation(self):
+        self.assertEqual(self.violation(self.ORIGINAL.rstrip("\n")), 5)
+
+    def test_malformed_line_may_change_only_when_listed_for_repair(self):
+        repaired = daily_loop.revision_violation(self.BROKEN, self.ORIGINAL, {4})
+        self.assertIsNone(repaired)
+        self.assertEqual(daily_loop.revision_violation(self.BROKEN, self.ORIGINAL, set()), 4)
+        repaired_and_edited = daily_loop.revision_violation(
+            self.BROKEN, self.ORIGINAL.replace("青い", "赤い"), {4})
+        self.assertEqual(repaired_and_edited, 5)
+
+    def test_repair_lines_come_from_malformed_findings_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "report.json"
+            self.assertEqual(daily_loop.malformed_ruby_lines(report), set())
+            report.write_text(json.dumps({"findings": [
+                {"line": 4, "reason": "malformed_ruby"},
+                {"line": 5, "reason": "unattested_reading"},
+                {"line": 7, "reason": "malformed_ruby"},
+            ]}), encoding="utf-8")
+            self.assertEqual(daily_loop.malformed_ruby_lines(report), {4, 7})
+
+
 class FrontMatterQuotingTest(unittest.TestCase):
     def test_yaml_double_quoted_escapes_model_owned_characters(self):
         self.assertEqual(daily_loop.yaml_double_quoted('練習 "成功" 的表達'),

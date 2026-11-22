@@ -427,6 +427,27 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+RT_CONTENT_RE = re.compile(r"<rt>.*?</rt>")
+
+
+def rt_blanked_lines(text: str) -> list[str]:
+    """One entry per line in the annotator's numbering, every <rt> reading
+    removed."""
+    return [RT_CONTENT_RE.sub("<rt></rt>", line) for line in text.splitlines(keepends=True)]
+
+
+def revision_violation(original: str, revised: str, repair_lines: set[int]) -> int | None:
+    """First line (1-based) where `revised` departs from `original` outside
+    <rt> readings, or None when the revision is legal. Lines in `repair_lines`
+    carried a malformed_ruby finding and may change at will: repairing broken
+    markup is the point."""
+    before, after = rt_blanked_lines(original), rt_blanked_lines(revised)
+    for number, (was, now) in enumerate(zip(before, after), start=1):
+        if was != now and number not in repair_lines:
+            return number
+    return None if len(before) == len(after) else min(len(before), len(after)) + 1
+
+
 # --- stage runners ---------------------------------------------------------------
 
 
@@ -507,6 +528,16 @@ def annotation_hash_of(report_dir: Path, stem: str) -> str | None:
         return json.loads(path.read_text(encoding="utf-8")).get("post_sha256")
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def malformed_ruby_lines(report_path: Path) -> set[int]:
+    """Lines that carried a malformed_ruby finding: the only lines a revision
+    may change outside <rt> readings. An unreadable report exempts nothing."""
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        return {f["line"] for f in report["findings"] if f.get("reason") == "malformed_ruby"}
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()
 
 
 # --- the run ---------------------------------------------------------------------
