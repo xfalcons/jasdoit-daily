@@ -50,6 +50,7 @@ class Parser(argparse.ArgumentParser):
 def build_prompt(persona: str, row: loop_support.ThemeRow, day: int, is_sunday: bool,
                  fewshot: str, digest_lines: list[str]) -> str:
     lo, hi = loop_support.length_band(day)
+    target = f"{hi - 60}–{hi - 20}" if lo is None else f"{(lo + hi) // 2 - 15}–{(lo + hi) // 2}"
     writing = (
         f"\n- 今天是週日：文末必須有「## 週日寫作提示」section，5–8 條編號寫作提示（`1. ` 開頭），"
         if is_sunday else "\n- 今天不是週日：不要寫作提示 section。"
@@ -66,7 +67,7 @@ def build_prompt(persona: str, row: loop_support.ThemeRow, day: int, is_sunday: 
 ## 硬性要求
 - 輸出「一個完整 Markdown 檔案」，第一行是 `---` front-matter，其中只需正確填 `description:`（約 50 字繁體中文，說明本篇內容）；其他 front-matter 欄位引擎會重寫，內容可留最簡。
 - 導言 1–2 句繁體中文＋`<!-- more -->`。
-- `## 日文文章：{row.title_ja}`：正文 {lo}–{hi} 字（reading-locked 計數），每個漢字一律 `<ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby>` 標音；ruby 的 base（`<ruby>` 到 `<rp>` 之間）只能是一個漢字詞（可含詞內假名，如「当たり前」），助詞、標點、其他詞一律放在 ruby 之外，`<rt>` 內只寫該詞的平假名讀音；每段日文後緊跟 blockquote `<span lang="zh-Hant" data-translation>…</span>` 繁體中譯。
+- `## 日文文章：{row.title_ja}`：正文 {lo}–{hi} 字（reading-locked 計數；目標 {target} 字，超過 {hi} 字會被退件），每個漢字一律 `<ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby>` 標音；ruby 的 base（`<ruby>` 到 `<rp>` 之間）只能是一個漢字詞（可含詞內假名，如「当たり前」），助詞、標點、其他詞一律放在 ruby 之外，`<rt>` 內只寫該詞的平假名讀音；每段日文後緊跟 blockquote `<span lang="zh-Hant" data-translation>…</span>` 繁體中譯。
 - 日文正文之外（標題、導言、單字卡、文法、寫作提示）的解說用繁體中文。
 - `## 3 個重點單字`：三張 `### 1. `～`### 3. ` 編號卡片，各含 **詞性**、**意思**、**常見搭配**（至少 2 項）、**例句**（日文＋中譯 span）。
 - `## 1 個重點文法`：一個 `### ` 文法點，含 **核心語意**、**接續**、**例句**（日文＋中譯）、**比較與注意**。
@@ -133,8 +134,8 @@ def build_revision_prompt(draft: str, findings: list[dict]) -> str:
 
 唯一的任務：只更正被標記的 ruby 元素的 `<rt>` 讀音，其他任何字都不改。
 
-- 新讀音寫平假名，`<rt>` 內不可出現標點或漢字。更正後該處的 assembled 必須等於 unidic（片假名，請轉成平假名）；`tokens` 是切分讀音的提示，`jmdict` 列出的讀法也可以用。
-- 標記為 malformed_ruby 的行，把該行的 ruby 修成完整格式 `<ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby>`。ruby 的 base 只能是一個漢字詞（可含詞內假名），不可含標點、助詞或其他詞：把多餘的文字移到 ruby 之外，`<rt>` 只留該詞的讀音。
+- 其他 finding：只改該處的 `<rt>`，寫平假名，不可出現標點或漢字。`unidic` 是這個詞在句中的讀音（片假名，請轉成平假名），`jmdict` 列出的讀法也可以用，`tokens` 是切分讀音的提示。
+- 標記為 malformed_ruby 的行沒有讀音證據，只修標記結構：把該行的 ruby 修成完整格式 `<ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby>`。ruby 的 base 只能是一個漢字詞（可含詞內假名），不可含標點、助詞或其他詞：把多餘的文字移到 ruby 之外，`<rt>` 只留該詞的讀音。
 - 沒被標記的 `<rt>`，以及所有 `<ruby>`、`<rp>` 標記、正文、標點、空白、換行、front-matter，逐字保留；不增刪行、不重新排版。
 
 ## 標記的讀音（每行一處）

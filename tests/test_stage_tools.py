@@ -275,6 +275,7 @@ class RubyBaseRuleTest(unittest.TestCase):
         prompt = generate_post.build_prompt("persona", self.ROW, 20, False, "gold", [])
         self.assertIn("ruby 的 base", prompt)
         self.assertIn("助詞、標點、其他詞一律放在 ruby 之外", prompt)
+        self.assertIn("目標 260–275 字，超過 300 字會被退件", prompt)
 
     def test_revision_prompt_teaches_base_narrowing_on_repair_lines(self):
         finding = {"line": 99, "surface": "これからも、日本語", "rt": "にほんご",
@@ -285,4 +286,5 @@ class RubyBaseRuleTest(unittest.TestCase):
         prompt = generate_post.build_revision_prompt("draft", [finding])
         self.assertIn("base 只能是一個漢字詞", prompt)
         self.assertIn("把多餘的文字移到 ruby 之外", prompt)
-        self.assertIn("`<rt>` 內不可出現標點或漢字", prompt)
+        self.assertIn("寫平假名，不可出現標點或漢字", prompt)
+        self.assertIn("malformed_ruby 的行沒有讀音證據，只修標記結構", prompt)
