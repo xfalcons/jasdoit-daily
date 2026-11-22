@@ -1,5 +1,5 @@
 """Tests for stage tools' pure prompt/verdict logic and their no-network
-fake modes (GEN_FAKE_PATH / VERIFY_FAKE_PATH)."""
+fake modes (GEN_FAKE_PATH / VERIFY_FAKE_PATH / REVISE_FAKE_PATH)."""
 import importlib.util
 import json
 import os
@@ -80,6 +80,32 @@ class VerifyPromptTest(unittest.TestCase):
         self.assertIn("VERDICT:", prompt)
 
 
+DIVERGENT_FINDINGS = [
+    {"line": 30, "col": 24, "surface": "教室", "rt": "きょうしち", "verdict": "divergent",
+     "reason": "unattested_reading",
+     "evidence": {"assembled": "きょうしち", "unidic": "キョウシツ", "tokens": ["教室"],
+                  "jmdict": [], "pykakasi": None}},
+    {"line": 34, "col": 39, "surface": "数字", "rt": "かず", "verdict": "divergent",
+     "reason": "unattested_reading",
+     "evidence": {"assembled": "かず", "unidic": "スウジ", "tokens": ["数字"],
+                  "jmdict": [], "pykakasi": None}},
+]
+
+
+class BuildRevisionPromptTest(unittest.TestCase):
+    def test_prompt_carries_the_draft_and_every_finding_with_its_evidence(self):
+        prompt = generate_post.build_revision_prompt("下書き本文", DIVERGENT_FINDINGS)
+        self.assertIn("<<<DRAFT\n下書き本文\nDRAFT>>>", prompt)
+        for expected in ("2 處", "L30", "教室", "rt=きょうしち", "unidic=キョウシツ", "tokens=教室",
+                         "L34", "数字", "rt=かず", "unidic=スウジ", "unattested_reading"):
+            self.assertIn(expected, prompt)
+
+    def test_prompt_limits_the_edit_to_flagged_readings(self):
+        prompt = generate_post.build_revision_prompt("下書き", DIVERGENT_FINDINGS[:1])
+        for expected in ("`<rt>` 讀音", "malformed_ruby", "逐字保留", "不要任何前言"):
+            self.assertIn(expected, prompt)
+
+
 def run_tool(script, args, env_extra):
     env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
     env.update(env_extra)
@@ -127,6 +153,68 @@ class FakeModeTest(unittest.TestCase):
             out = Path(tmp) / "draft.md"
             proc = run_tool("generate-post.py", ["--day", "19", "--out", str(out)], {})
             self.assertEqual(proc.returncode, 4)
+
+
+class RevisionModeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.draft = self.root / "draft.md"
+        self.draft.write_text("下書き", encoding="utf-8")
+        self.report = self.root / "report.json"
+        self.report.write_text(json.dumps({"findings": DIVERGENT_FINDINGS}), encoding="utf-8")
+        self.out = self.root / "out" / "revised.md"
+        self.revised_fixture = FIXTURES / "day-019-chiisana-shouri-wo-iwau.md"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def revise(self, *extra, **env):
+        return run_tool("generate-post.py", [
+            "--revise", str(self.draft), "--findings", str(self.report), "--out", str(self.out),
+            *extra,
+        ], env)
+
+    def test_revise_fake_copies_its_fixture_and_announces_the_stage(self):
+        proc = self.revise(REVISE_FAKE_PATH=str(self.revised_fixture))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.out.read_text(encoding="utf-8"),
+                         self.revised_fixture.read_text(encoding="utf-8"))
+        meta = [ln for ln in proc.stdout.splitlines() if ln.startswith("META ")][-1]
+        self.assertEqual(json.loads(meta[5:]), {
+            "stage": "revise", "model": None, "usage": None, "cost_usd": None, "fake": True,
+        })
+
+    def test_revise_without_key_or_fake_is_transport_error(self):
+        proc = self.revise()
+        self.assertEqual(proc.returncode, 4)
+        self.assertFalse(self.out.exists())
+
+    def test_revise_with_no_findings_to_correct_is_usage_error(self):
+        self.report.write_text(json.dumps({"findings": []}), encoding="utf-8")
+        proc = self.revise(REVISE_FAKE_PATH=str(self.revised_fixture))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no findings", proc.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_revise_rejects_the_generation_arguments(self):
+        for flag, value in (("--day", "19"), ("--fewshot", "gold.md"), ("--digest", "digest.json")):
+            with self.subTest(flag=flag):
+                proc = self.revise(flag, value, REVISE_FAKE_PATH=str(self.revised_fixture))
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("--revise cannot be combined with", proc.stderr)
+                self.assertFalse(self.out.exists())
+
+    def test_generation_rejects_findings_and_still_requires_day(self):
+        env = {"GEN_FAKE_PATH": str(self.revised_fixture)}
+        with_findings = run_tool("generate-post.py", [
+            "--day", "19", "--out", str(self.out), "--findings", str(self.report)], env)
+        self.assertEqual(with_findings.returncode, 1)
+        self.assertIn("--findings is only valid with --revise", with_findings.stderr)
+        without_day = run_tool("generate-post.py", ["--out", str(self.out)], env)
+        self.assertEqual(without_day.returncode, 1)
+        self.assertIn("--day is required", without_day.stderr)
+        self.assertFalse(self.out.exists())
 
 
 if __name__ == "__main__":

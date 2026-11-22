@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Stage 2 of the daily loop: draft generation via OpenRouter.
+"""Stage 2 of the daily loop: draft generation via OpenRouter, and the one
+reading revision the orchestrator runs when annotate reports divergent ruby.
 
 Usage:
     python tools/generate-post.py --day N --out PATH [--fewshot PATH] [--digest PATH]
+    python tools/generate-post.py --revise DRAFT --findings REPORT --out PATH
 
 Prompt = AGENTS-teacher persona + the day's theme-table row + hard
 requirements + one few-shot gold post + the avoid-repeat corpus digest
@@ -10,6 +12,11 @@ requirements + one few-shot gold post + the avoid-repeat corpus digest
 replaces every front-matter field except `description`. GEN_FAKE_PATH
 copies a fixture post instead of calling the API (tests, dry-runs; no
 network, no key needed).
+
+--revise is the second mode and excludes --day/--fewshot/--digest. Its
+prompt carries the whole draft plus every finding of the annotate-post
+report with its evidence, and asks for corrected <rt> readings only.
+REVISE_FAKE_PATH mirrors GEN_FAKE_PATH for it.
 
 Exit codes: 0 draft written, 1 usage error, 4 transport/model error.
 The last stdout line is one META json object.
@@ -30,6 +37,12 @@ import loop_support
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "z-ai/glm-5.3"
 TRANSPORT = 4
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        print(f"generate-post: {message}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def build_prompt(persona: str, row: loop_support.ThemeRow, day: int, is_sunday: bool,
@@ -99,19 +112,124 @@ def call_openrouter(model: str, prompt: str, api_key: str) -> tuple[str, dict | 
     return loop_support.completion_content(payload), payload.get("usage")
 
 
+def format_finding(finding: dict) -> str:
+    ev = finding["evidence"]
+
+    def show(value):
+        if isinstance(value, list):
+            value = "、".join(value)
+        return value or "-"
+
+    return (f"- L{finding['line']}〈{finding['surface']}〉目前 rt={show(finding.get('rt'))}："
+            f"{finding['verdict']}（{finding['reason']}）assembled={show(ev['assembled'])} "
+            f"unidic={show(ev['unidic'])} tokens={show(ev['tokens'])} "
+            f"jmdict={show(ev['jmdict'])} pykakasi={show(ev['pykakasi'])}")
+
+
+def build_revision_prompt(draft: str, findings: list[dict]) -> str:
+    return f"""你是日語讀音校訂者。讀音檢查在下面這篇 Markdown 貼文標記了 {len(findings)} 處 ruby 讀音。
+
+唯一的任務：只更正被標記的 ruby 元素的 `<rt>` 讀音，其他任何字都不改。
+
+- 新讀音寫平假名。更正後該處的 assembled 必須等於 unidic（片假名，請轉成平假名）；`tokens` 是切分讀音的提示，`jmdict` 列出的讀法也可以用。
+- 標記為 malformed_ruby 的行，把該行的 ruby 修成完整格式 `<ruby>漢字<rp>（</rp><rt>かんじ</rt><rp>）</rp></ruby>`。
+- 沒被標記的 `<rt>`，以及所有 `<ruby>`、`<rp>` 標記、正文、標點、空白、換行、front-matter，逐字保留；不增刪行、不重新排版。
+
+## 標記的讀音（每行一處）
+{chr(10).join(format_finding(f) for f in findings)}
+
+## 待校訂貼文
+<<<DRAFT
+{draft}
+DRAFT>>>
+
+現在輸出校訂後的完整 Markdown 檔案，不要任何前言或 code fence。"""
+
+
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Stage 2 draft generation")
-    parser.add_argument("--day", type=int, required=True)
+    parser = Parser(description="Stage 2 draft generation, or its one reading revision")
+    parser.add_argument("--day", type=int, default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--fewshot", type=Path, default=None)
     parser.add_argument("--digest", type=Path, default=None)
-    return parser.parse_args(argv)
+    parser.add_argument("--revise", type=Path, default=None,
+                        help="draft whose flagged <rt> readings to correct; "
+                             "excludes --day, --fewshot and --digest")
+    parser.add_argument("--findings", type=Path, default=None,
+                        help="annotate-post report that feeds --revise")
+    args = parser.parse_args(argv)
+    if args.revise is not None:
+        if args.day is not None or args.fewshot or args.digest:
+            parser.error("--revise cannot be combined with --day, --fewshot or --digest")
+        if args.findings is None:
+            parser.error("--revise requires --findings")
+    elif args.findings is not None:
+        parser.error("--findings is only valid with --revise")
+    elif args.day is None:
+        parser.error("--day is required")
+    return args
+
+
+def revision_prompt(draft_path: Path, report_path: Path) -> str | None:
+    """The revision prompt, or None once the usage error is printed."""
+    try:
+        draft = draft_path.read_text(encoding="utf-8")
+        findings = json.loads(report_path.read_text(encoding="utf-8"))["findings"]
+        if not findings:
+            print("generate-post: the findings report carries no findings", file=sys.stderr)
+            return None
+        return build_revision_prompt(draft, findings)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"generate-post: cannot read the draft or the findings report: {exc}",
+              file=sys.stderr)
+        return None
+
+
+def complete(fake_key: str, prompt: str | None, out: Path, meta: dict) -> int:
+    """With the fake env set, copy its fixture; otherwise answer `prompt` with
+    one model call. Either way the draft lands at `out` behind one META line."""
+    fake = os.environ.get(fake_key)
+    if fake:
+        try:
+            draft = Path(fake).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"generate-post: cannot read {fake_key} {fake}: {exc}", file=sys.stderr)
+            return TRANSPORT
+        model = None
+        usage = None
+    else:
+        model = os.environ.get("GEN_MODEL") or DEFAULT_MODEL
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            print("generate-post: OPENROUTER_API_KEY not set", file=sys.stderr)
+            return TRANSPORT
+        try:
+            content, usage = call_openrouter(model, prompt, api_key)
+        except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError, OSError) as exc:
+            print(f"generate-post: model/transport error: {exc}", file=sys.stderr)
+            return TRANSPORT
+        draft = strip_outer_fence(content)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(draft, encoding="utf-8")
+    print(f"draft written: {out} ({len(draft)} chars)")
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    loop_support.print_meta({
+        **meta, "model": model, "usage": usage, "cost_usd": cost, "fake": bool(fake),
+    })
+    return 0
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
     repo_root = Path(__file__).resolve().parent.parent
     loop_support.load_dotenv(repo_root)
+
+    if args.revise is not None:
+        prompt = revision_prompt(args.revise, args.findings)
+        if prompt is None:
+            return 1
+        return complete("REVISE_FAKE_PATH", prompt, args.out, {"stage": "revise"})
 
     theme_path = repo_root / "aidd-docs" / "references" / "japanese-theme-rotation.md"
     try:
@@ -135,21 +253,8 @@ def main(argv=None) -> int:
             )
     fewshot = args.fewshot.read_text(encoding="utf-8") if args.fewshot else ""
 
-    fake = os.environ.get("GEN_FAKE_PATH")
-    if fake:
-        try:
-            draft = Path(fake).read_text(encoding="utf-8")
-        except OSError as exc:
-            print(f"generate-post: cannot read GEN_FAKE_PATH {fake}: {exc}", file=sys.stderr)
-            return TRANSPORT
-        model = None
-        usage = None
-    else:
-        model = os.environ.get("GEN_MODEL") or DEFAULT_MODEL
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            print("generate-post: OPENROUTER_API_KEY not set", file=sys.stderr)
-            return TRANSPORT
+    prompt = None
+    if not os.environ.get("GEN_FAKE_PATH"):
         persona_path = repo_root / "AGENTS-teacher.md"
         try:
             persona = persona_path.read_text(encoding="utf-8")
@@ -157,22 +262,7 @@ def main(argv=None) -> int:
             print(f"generate-post: cannot read persona {persona_path}: {exc}", file=sys.stderr)
             return TRANSPORT
         prompt = build_prompt(persona, row, args.day, day_date.weekday() == 6, fewshot, digest_lines)
-        try:
-            content, usage = call_openrouter(model, prompt, api_key)
-        except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError, OSError) as exc:
-            print(f"generate-post: model/transport error: {exc}", file=sys.stderr)
-            return TRANSPORT
-        draft = strip_outer_fence(content)
-
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(draft, encoding="utf-8")
-    print(f"draft written: {args.out} ({len(draft)} chars)")
-    cost = usage.get("cost") if isinstance(usage, dict) else None
-    loop_support.print_meta({
-        "stage": "generate", "day": args.day, "model": model, "usage": usage,
-        "cost_usd": cost, "fake": bool(fake),
-    })
-    return 0
+    return complete("GEN_FAKE_PATH", prompt, args.out, {"stage": "generate", "day": args.day})
 
 
 if __name__ == "__main__":
