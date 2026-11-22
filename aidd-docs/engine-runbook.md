@@ -88,6 +88,16 @@ gh variable set ENGINE_LIVE --body "true"
 
 要 disarm：`gh variable set ENGINE_LIVE --body "false"`（或 `gh variable delete ENGINE_LIVE`）。
 
+### 6.1 只走 PR（engine live，但每天的文章都進 PR）
+
+PASS 也開 PR、不 push main，適合剛上線的前幾天：你每天看到的是一篇已完成讀音驗證、gate、音檔與 verifier 審查的完整 PR，花 3–5 分鐘看完就 merge。
+
+```bash
+gh variable set AUTO_PUSH_N3 --body "false"
+```
+
+夠了之後恢復自動發布：`gh variable delete AUTO_PUSH_N3`。未設或不是 `"false"` 時，PASS 直接 push main。
+
 ## 7. 補賽（backfill）與手動補音（補音不改正文）
 
 - 補賽過去缺文：Actions → Daily loop → Run workflow → `day` 填過去天數、勾 `live`。僅限主題表已填且「該 day 貼文不存在」的日子（存在 → noop，引擎永不改歷史）。

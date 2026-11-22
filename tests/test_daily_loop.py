@@ -1046,6 +1046,29 @@ class LivePublishTest(unittest.TestCase):
             self.assertEqual(stub.create_calls(), [])
             self.assert_ambient_untouched()
 
+    def test_veto_routes_a_pass_to_a_pr_instead_of_main(self):
+        runners = FakeRunners()
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, _ = run_live(self.repo, runners, env={"AUTO_PUSH_N3": "false"})
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            self.assertNotIn("content: day 019 post (engine pass)",
+                            self.repo.origin_subjects())
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
+            branches = self.repo.origin_git("branch", "--list", "loop/day-019*").stdout.split()
+            self.assertEqual(branches, ["loop/day-019"])
+            self.assertEqual(len(stub.create_calls()), 1)
+
+    def test_any_other_veto_value_still_pushes_a_pass_to_main(self):
+        runners = FakeRunners()
+        with gh_on_path(GhStub(Path(self.tmp.name))):
+            code, loop, _ = run_live(self.repo, runners, env={"AUTO_PUSH_N3": "true"})
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            self.assertIn("content: day 019 post (engine pass)", self.repo.origin_subjects())
+
     def test_verifier_exhaust_flags_and_publishes_via_pr_only(self):
         runners = FakeRunners(verify=[4, 4])
         with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
