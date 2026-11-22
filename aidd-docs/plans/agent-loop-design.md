@@ -67,11 +67,13 @@ description: "..."
 | 0 | 觸發 | `daily-loop.yml` cron（UTC；台北 06:00 ＝ 前日 22:00 UTC）或 `workflow_dispatch` 補跑 | run 啟動 | 延遲可容忍（§6.2） |
 | 1 | 選題 | 讀 `aidd-docs/references/japanese-theme-rotation.md` 的 Day X row；掃 `_posts/` 關鍵字去重 | 當日主題＋核心句 | row 未填（Day 31＋）→ FAIL＋通知（Day 30 前補表） |
 | 2 | 生成 | `AGENTS-teacher.md` persona ＋ 主題 row ＋ 難度/長度約束 ＋ §1 模板；預設 1 篇/天（批次參數保留，上限寫死） | draft markdown | 重試 1 次，再敗 FAIL |
-| 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧（divergent）→ FAIL；低信心（low_confidence）→ FLAG |
+| 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧（divergent）→ 先修訂一次（見下方「讀音修訂」），仍分歧才 FAIL；低信心（low_confidence）→ FLAG |
 | 4 | 驗證閘門 | rule QA ＋ 跨模型 verifier ＋ gold sample 回歸 | PASS／FLAG／FAIL | 判準見 §3 |
 | 5 | TTS | 讀音鎖定文字（ruby 的 `<rt>` 讀音取代漢字餵入；Azure SSML `<sub>` 亦可，勿剝 ruby 餵裸漢字 — 2026-11-08 實測 edge-tts 將 `百日間` 誤讀）→ Azure Neural ja-JP → mp3 → R2 `day-XXX.mp3`；未標註漢字清單印出人工掃 | `audio_url` | 重試 1 次；再敗則文先出（`audio_url` 留空＋FLAG），音後補 |
 | 6 | 入庫＝發布 | PASS → commit＋push main（PAT）；FLAG → branch＋PR；FAIL → 不 commit | git commit／PR | 見 §4 §5 |
 | 7 | 記錄 | cost、latency、verdict、FLAG 清單 append 進 `data/loop-log.jsonl`；失敗用 Actions email 通知 | log 一行 | — |
+
+讀音修訂（2026-11-22 決定）：stage 3 標註回報 divergent 時，引擎先用 stage 2 的工具做恰好一次讀音修訂（`tools/generate-post.py --revise`），再重跑標註。修訂 prompt 帶整篇 draft 與 annotation report 的每個 finding 及其證據，只允許更正被標記 ruby 的 `<rt>` 讀音（`malformed_ruby` 行可一併修復標記）；重跑標註前，引擎先驗證「抹掉所有 `<rt>` 內容後兩份 draft 逐字相同，僅 `malformed_ruby` 行除外」，不符即 FAIL（`revision_violation`），重跑仍 divergent 則 FAIL（`revision_failed`）。每個 run 最多修訂一次；run record 記 `revised` 與 `revision_cost_usd`。
 
 ## 3. 驗證閘門判準
 

@@ -131,3 +131,11 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 | `verifier_vendor` FLAG | `GEN_MODEL`／`VERIFY_MODEL` 同廠或格式錯（需 `vendor/model`）；自動 PASS 被擋，改成不同廠 |
 | live FLAG `tts_failed` 且 `audio_url` 空 | `R2_PUBLIC_BASE` 未設（§2）或 TTS render／upload 重試後仍敗；走 PR 不 push main，之後依 §7 補音 |
 | gold replay 紅 | 套件或 Python 版本漂移；見 §9 |
+| `revision_failed` FAIL | 標註 divergent 後已修訂一次，複檢仍 divergent（或修訂工具本身失敗）；看 transcript 的 finding 行（`L<行>:<欄>` 與 unidic 證據），重跑 dispatch，連續出現則照 §8 走手動期 |
+| `revision_violation` FAIL | 修訂稿動了 `<rt>` 讀音以外的文字，引擎已拒絕（transcript 標出行號）；重跑 dispatch，連續出現再調 `build_revision_prompt` |
+
+## 11. 讀音修訂（單次）與成本上限
+
+- 標註回報 divergent 時，引擎先做恰好一次讀音修訂（`tools/generate-post.py --revise`，模型同 `GEN_MODEL`），只改被標記 ruby 的 `<rt>` 讀音，再重跑標註。仍 divergent 才 FAIL（`revision_failed`）；改到讀音以外的文字直接 FAIL（`revision_violation`）。
+- 成本上限：單日最壞情況是生成、讀音修訂、驗證各一次，約 US$0.15（預估值，不含 transport 錯誤的重試；實測以 ledger 的 `cost_usd` 為準）。
+- run record 多兩個欄位：`revised`（這個 run 是否修訂過）與 `revision_cost_usd`；`cost_usd` 是生成、修訂、驗證的合計。
