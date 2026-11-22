@@ -31,7 +31,10 @@ concurrency:
 
 jobs:
   loop:
-    runs-on: ubuntu-latest
+    # Pinned image: 3.13.7 ships only the generic linux build, which
+    # setup-python cannot resolve on ubuntu-26.04; 24.04 can. Byte-identical
+    # gold replay needs the pinned python, so the runner stays pinned too.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -40,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # Gold baselines are byte-compared; the pinned patch version is the
           # recorded baseline environment (amendment 2)
