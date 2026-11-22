@@ -529,6 +529,42 @@ def gate_soft_reasons(report_path: Path) -> list[str]:
     return reasons
 
 
+CLAIM_RE = re.compile(r"(約\s*)\d+(\s*字)")
+
+
+def measured_length(report_path: Path) -> int | None:
+    """The gate's own reading-locked count for the post, or None when its
+    report carries none. The gate owns the counting method."""
+    if not report_path.is_file():
+        return None
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for post in report.get("posts", []):
+        for check in post.get("checks", []):
+            if check.get("check") == "length.maximum" and check.get("state") in ("satisfied", "issue"):
+                for evidence in check.get("evidence", []):
+                    actual = evidence.get("actual") if isinstance(evidence, dict) else None
+                    if type(actual) is int:
+                        return actual
+    return None
+
+
+def sync_length_claim(post_text: str, count: int) -> str:
+    """Rewrite the character-count claims to the measured count, floored to
+    tens: the front-matter description and the intro blockquote. A model's
+    own estimate was thirty characters low on a real draft."""
+    claimed = rf"\g<1>{count // 10 * 10}\g<2>"
+    head, fence, tail = post_text.partition("\n---\n")
+    if fence:
+        head = re.sub(r"^(description:.*)$",
+                      lambda m: CLAIM_RE.sub(claimed, m.group(1)), head, count=1, flags=re.M)
+    tail = re.sub(r"^(>[^\n]*日文正文[^\n]*)$",
+                  lambda m: CLAIM_RE.sub(claimed, m.group(1)), tail, count=1, flags=re.M)
+    return head + fence + tail
+
+
 def annotation_hash_of(report_dir: Path, stem: str) -> str | None:
     path = report_dir / f"{stem}.json"
     if not path.is_file():
@@ -663,6 +699,12 @@ class Loop:
         # divergence there stays annotation_divergent.
         self.run_annotate(self.post, revise=True)
         self.run_gate(self.post, "gate-draft.json")
+        count = measured_length(self.sandbox / "gate-draft.json")
+        if count is not None:
+            self.post.write_text(
+                sync_length_claim(self.post.read_text(encoding="utf-8"), count),
+                encoding="utf-8",
+            )
 
         self.stage("verify")
         if verify_allowed:

@@ -133,9 +133,11 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 | gold replay 紅 | 套件或 Python 版本漂移；見 §9 |
 | `revision_failed` FAIL | 標註 divergent 後已修訂一次，複檢仍 divergent（或修訂工具本身失敗）；看 transcript 的 finding 行（`L<行>:<欄>` 與 unidic 證據），重跑 dispatch，連續出現則照 §8 走手動期 |
 | `revision_violation` FAIL | 修訂稿動了 `<rt>` 讀音以外的文字，引擎已拒絕（transcript 標出行號）；重跑 dispatch，連續出現再調 `build_revision_prompt` |
+| 本機 dry-run 在 generate 報 `CERTIFICATE_VERIFY_FAILED` | uv 管的 Python 在 macOS 不讀系統 Keychain 的 CA 憑證；帶 `SSL_CERT_FILE=/etc/ssl/cert.pem` 重跑。CI 的 Ubuntu 有系統憑證，不受影響 |
 
 ## 11. 讀音修訂（單次）與成本上限
 
 - 標註回報 divergent 時，引擎先做恰好一次讀音修訂（`tools/generate-post.py --revise`，模型同 `GEN_MODEL`），只改被標記 ruby 的 `<rt>` 讀音，再重跑標註。仍 divergent 才 FAIL（`revision_failed`）；改到讀音以外的文字直接 FAIL（`revision_violation`）。
-- 成本上限：單日最壞情況是生成、讀音修訂、驗證各一次，約 US$0.15（預估值，不含 transport 錯誤的重試；實測以 ledger 的 `cost_usd` 為準）。
+- 成本：2026-11-22 四次真實 dry-run 實測（glm-5.3 生成與修訂、gpt-6.1-sol 驗證），單次生成 US$0.06–0.15（隨輸出長度變動），修訂 US$0.03–0.05，驗證 US$0.02。走完全程的 run 實測 US$0.13，最壞情況約 US$0.22；原估的 US$0.15 上限已被單次生成突破過，不再當上限用。ledger 的 `cost_usd` 是合計。
 - run record 多兩個欄位：`revised`（這個 run 是否修訂過）與 `revision_cost_usd`；`cost_usd` 是生成、修訂、驗證的合計。
+- 字數宣稱：draft gate 之後、驗證之前，引擎用 gate 的實測字數覆寫 front-matter `description` 與導言裡的「約 N 字」（取到十位）。模型自己的估計不會進到發布文。

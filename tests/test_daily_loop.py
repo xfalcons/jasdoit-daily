@@ -92,6 +92,8 @@ class FakeRunners:
         self.reviser_inputs = []
         self.draft_text = RAW_DRAFT
         self.revise_text = fix_one_rt
+        self.gate_length = None
+        self.verify_seen = []
         self.findings_of = findings if callable(findings) else (lambda text: list(findings or []))
         self.generate_codes = list(generate or [0])
         self.revise_codes = list(revise or [0])
@@ -144,13 +146,19 @@ class FakeRunners:
     def gate(self, post, json_out):
         self.posts_seen.append(post.read_text(encoding="utf-8"))
         rc = self._next(self.gate_codes, "gate")
+        checks = []
         if rc == 3:
-            json_out.write_text(json.dumps({"posts": [{"checks": [
-                {"check": "sections.unrecognized", "severity": "soft", "state": "issue"}
-            ]}]}), encoding="utf-8")
+            checks.append({"check": "sections.unrecognized", "severity": "soft",
+                           "state": "issue"})
+        if self.gate_length is not None:
+            checks.append({"check": "length.maximum", "severity": "hard", "state": "satisfied",
+                           "evidence": [{"actual": self.gate_length}]})
+        if checks:
+            json_out.write_text(json.dumps({"posts": [{"checks": checks}]}), encoding="utf-8")
         return rc, "", "", None
 
     def verify(self, post):
+        self.verify_seen.append(post.read_text(encoding="utf-8"))
         rc = self._next(self.verify_codes, "verify")
         return rc, "", "", {"cost_usd": 0.004} if rc in (0, 3) else None
 
@@ -1249,6 +1257,50 @@ class LivePublishTest(unittest.TestCase):
                                               "main:source/_posts").stdout.split()
             self.assertFalse(any(n.startswith("day-019-") for n in main_posts), msg=main_posts)
             self.assertEqual(len(stub.create_calls()), 1)
+
+
+class LengthClaimTest(unittest.TestCase):
+    POST = ('---\n'
+            'title: "Day 19｜x"\n'
+            'description: "Day 19：小勝利。以約 260 字的 N3 短文與三個重點單字。"\n'
+            'day: 19\n---\n\n'
+            '導言。\n\n'
+            '> 日文正文約 260 字，不含標音與中文翻譯。\n\n'
+            '<!-- more -->\n\n'
+            '## 日文文章\n\n本文。\n\n> <span lang="zh-Hant" data-translation>譯</span>\n')
+
+    def test_claims_take_the_measured_count_floored_to_tens(self):
+        out = daily_loop.sync_length_claim(self.POST, 291)
+        self.assertIn("以約 290 字的 N3 短文", out)
+        self.assertIn("> 日文正文約 290 字，", out)
+        self.assertEqual(daily_loop.sync_length_claim(out, 291), out)
+
+    def test_without_a_claim_nothing_is_rewritten(self):
+        text = self.POST.replace("約 260 字", "260 字前後")
+        self.assertEqual(daily_loop.sync_length_claim(text, 291), text)
+
+    def test_measured_length_reads_only_the_gate_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "gate.json"
+            self.assertIsNone(daily_loop.measured_length(report))
+            report.write_text(json.dumps({"posts": [{"checks": [
+                {"check": "ruby.structure", "state": "satisfied", "evidence": []},
+                {"check": "length.maximum", "state": "satisfied",
+                 "evidence": [{"actual": 315, "maximum": 300}]},
+            ]}]}), encoding="utf-8")
+            self.assertEqual(daily_loop.measured_length(report), 315)
+
+    def test_the_claim_is_synced_before_the_verifier_sees_the_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            runners.gate_length = 291
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 0)
+            self.assertEqual(runners.verify_seen, [runners.verify_seen[0]])
+            self.assertIn("以約 290 字", runners.verify_seen[0])
+            self.assertIn("日文正文約 290 字", runners.verify_seen[0])
+            self.assertEqual(loop.reasons, [])
 
 
 if __name__ == "__main__":
