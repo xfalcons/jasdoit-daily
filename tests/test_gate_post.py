@@ -3,6 +3,7 @@ front-matter validation, and annotation contract.
 
 Run from the repository root: python3 -m unittest tests.test_gate_post
 """
+import hashlib
 import importlib.util
 import json
 import sys
@@ -288,6 +289,61 @@ class AnnotationContractTest(unittest.TestCase):
         data, issues = gate.decode_annotation(raw, self.make_post())
         self.assertIsNone(data)
         self.assertTrue(any("surrogate" in e["detail"] for e in issues))
+
+
+class LengthMaximumToleranceTest(unittest.TestCase):
+    FIXTURE = ROOT / "tests" / "fixtures" / "day-019-chiisana-shouri-wo-iwau.md"
+    ANCHOR = gate.date(2026, 11, 4)
+
+    def gated_report(self, count):
+        lines = self.FIXTURE.read_text(encoding="utf-8").split("\n")
+        start = next(i for i, l in enumerate(lines) if l.startswith("## 日文文章"))
+        end = next(i for i, l in enumerate(lines) if l.startswith("## 3 個重點單字"))
+        prose = [i for i in range(start, end)
+                 if lines[i].strip() and not lines[i].startswith(("#", ">"))]
+        parts = [count // len(prose)] * len(prose)
+        parts[-1] += count - sum(parts)
+        for i, n in zip(prose, parts):
+            lines[i] = "あ" * n
+        with tempfile.TemporaryDirectory() as tmp:
+            post_path = Path(tmp) / self.FIXTURE.name
+            raw = "\n".join(lines).encode("utf-8")
+            post_path.write_bytes(raw)
+            report = {
+                "tool": "annotate-post", "schema": 1, "post": self.FIXTURE.stem, "day": 19,
+                "post_sha256": hashlib.sha256(raw).hexdigest(),
+                "counts": {"ruby": 1, "regions": 1, "ok": 1, "ok_contextual": 1, "ok_attested": 0,
+                           "low_confidence": 0, "divergent": 0},
+                "findings": [],
+            }
+            ann_path = Path(tmp) / f"{self.FIXTURE.stem}.json"
+            ann_path.write_text(json.dumps(report), encoding="utf-8")
+            return gate.evaluate_post(gate.load_post(post_path), ann_path, self.ANCHOR, [])
+
+    def length_check(self, report):
+        return next(c for c in report["checks"] if c["check"] == "length.maximum")
+
+    def test_count_at_tolerated_bound_still_passes(self):
+        report = self.gated_report(330)
+        self.assertEqual(report["verdict"], "PASS")
+        check = self.length_check(report)
+        self.assertEqual(check["state"], "satisfied")
+        self.assertEqual(check["evidence"][0]["actual"], 330)
+        self.assertEqual(check["evidence"][0]["maximum"], 300)
+
+    def test_count_one_over_tolerated_bound_fails(self):
+        report = self.gated_report(331)
+        self.assertEqual(report["verdict"], "FAIL")
+        check = self.length_check(report)
+        self.assertEqual(check["state"], "issue")
+        self.assertEqual(check["severity"], "hard")
+
+    def test_overage_within_tolerance_passes_with_detail(self):
+        report = self.gated_report(305)
+        self.assertEqual(report["verdict"], "PASS")
+        check = self.length_check(report)
+        self.assertEqual(check["state"], "satisfied")
+        self.assertIn("within 10% tolerance", check["evidence"][0]["detail"])
 
 
 if __name__ == "__main__":

@@ -145,6 +145,7 @@ def reduce_verdict(results: Sequence[dict]) -> str:
 
 
 GATE_EFFECTIVE_DAY = 18  # operator decision 2026-11-20: rule QA binds day >= 18; earlier posts stand as published
+LENGTH_MAX_TOLERANCE_PCT = 10  # operator decision 2026-11-23: day-020 live run died at 305/300; gate passes up to this percent over the band maximum
 
 
 def length_band(day: int) -> tuple:
@@ -911,9 +912,18 @@ def evaluate_post(post: Post, ann_path: Path, anchor: date, gold_issues: Sequenc
             results["length.maximum"] = blocked("length.maximum", "ruby.structure")
             results["length.target_minimum"] = blocked("length.target_minimum", "ruby.structure")
         else:
-            results["length.maximum"] = (
-                issue("length.maximum", length_ev) if count > maximum else satisfied("length.maximum", length_ev)
-            )
+            tolerated = maximum + maximum * LENGTH_MAX_TOLERANCE_PCT // 100
+            if count > tolerated:
+                results["length.maximum"] = issue("length.maximum", length_ev)
+            elif count > maximum:
+                results["length.maximum"] = satisfied(
+                    "length.maximum",
+                    ev("length",
+                       f"{count}/{maximum} characters (within {LENGTH_MAX_TOLERANCE_PCT}% tolerance)",
+                       actual=count, minimum=minimum, maximum=maximum, method="reading-locked-japanese-v1"),
+                )
+            else:
+                results["length.maximum"] = satisfied("length.maximum", length_ev)
             if minimum is None:
                 results["length.target_minimum"] = na("length.target_minimum", "no target minimum for days 71-100")
             else:
