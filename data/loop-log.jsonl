@@ -1,0 +1,1 @@
+{"audio_url": null, "cost_usd": 0.05676146883, "day": 20, "latency_ms": 310096, "live": true, "model_gen": "z-ai/glm-5.3", "model_verify": "openai/gpt-6.1-sol", "reasons": ["gate_fail"], "result": "fail", "revised": false, "revision_cost_usd": null, "stage_reached": "gate", "ts": "2026-11-23T10:10:32+08:00"}
