@@ -6,3 +6,4 @@ db.json
 audio-local/
 __pycache__/
 .env
+.claude/worktrees/
