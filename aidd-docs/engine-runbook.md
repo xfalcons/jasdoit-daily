@@ -1,6 +1,6 @@
 # 引擎操作手冊（daily-loop engine runbook）
 
-對象：operator（你）。引擎 = `tools/daily-loop.py` ＋ `tools/generate-post.py`／`verify-post.py`／`tts-upload.py`／`loop_support.py` ＋ `.github/workflows/daily-loop.yml`。規格見 `aidd-docs/plans/agent-loop-design.md`（含 2026-11-21 解釋備註）。
+對象：operator（你）。引擎 = `tools/daily-loop.py` ＋ `tools/generate-post.py`／`verify-post.py`／`tts-upload.py`／`loop_support.py` ＋ `.github/workflows/daily-loop.yml`。規格見 `aidd-docs/plans/agent-loop-design.md`（含 2026-11-21 解釋備註）；流程架構與各階段 actor（誰寫初稿、誰校稿、誰審批、誰訂正）見 `aidd-docs/engine-loop-architecture.md`。
 
 核心安全屬性：dry-run 一律零寫入（只在 temp sandbox 跑全流程）；live 才會 commit／push／上傳 R2；引擎永不改已發布的貼文（同 day 已存在 → noop）。
 
