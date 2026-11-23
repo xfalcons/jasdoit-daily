@@ -119,7 +119,7 @@ class ThemeRowTest(unittest.TestCase):
         row = loop_support.parse_theme_row(theme, 19)
         self.assertEqual(row.title_ja, "小さな勝利を祝う")
         self.assertEqual(row.core_sentence, "小さな勝利を祝う人は、学びを長く続けられる。")
-        self.assertIsNone(loop_support.parse_theme_row(theme, 99))
+        self.assertIsNone(loop_support.parse_theme_row(theme, 101))
 
     def test_anchor_and_phase(self):
         theme = (ROOT / "aidd-docs" / "references" / "japanese-theme-rotation.md").read_text(encoding="utf-8")
