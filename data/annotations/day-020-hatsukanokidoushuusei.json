@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-020-hatsukanokidoushuusei",
   "day": 20,
-  "post_sha256": "d151db5de2527824b6244ab2ac651a9f85ba32c6fa6fcbf97364e95be5d0d393",
+  "post_sha256": "2f56191d192f48aff211063f9b7557da7f71817f3b4164edb22c8e5e3ed84217",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",
@@ -13,10 +13,10 @@
     "pykakasi": "2.3.0"
   },
   "counts": {
-    "ruby": 105,
-    "regions": 105,
-    "ok": 105,
-    "ok_contextual": 104,
+    "ruby": 103,
+    "regions": 103,
+    "ok": 103,
+    "ok_contextual": 102,
     "ok_attested": 1,
     "low_confidence": 0,
     "divergent": 0
