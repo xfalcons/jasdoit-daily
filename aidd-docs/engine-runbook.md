@@ -151,3 +151,4 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 - 成本：2026-11-22 四次真實 dry-run 實測（glm-5.3 生成與修訂、gpt-6.1-sol 驗證），單次生成 US$0.06–0.15（隨輸出長度變動），修訂 US$0.03–0.05，驗證 US$0.02。走完全程的 run 實測 US$0.13，最壞情況約 US$0.22；原估的 US$0.15 上限已被單次生成突破過，不再當上限用。ledger 的 `cost_usd` 是合計。
 - run record 多兩個欄位：`revised`（這個 run 是否修訂過）與 `revision_cost_usd`；`cost_usd` 是生成、修訂、驗證的合計。
 - 字數宣稱：draft gate 之後、驗證之前，引擎用 gate 的實測字數覆寫 front-matter `description` 與導言裡的「約 N 字」（取到十位）。模型自己的估計不會進到發布文。
+- 長度上限容忍：`length.maximum` 的上限帶 10% 容忍（day≤30 上限 300 字，330 字內含仍 PASS，超過即 FAIL）。

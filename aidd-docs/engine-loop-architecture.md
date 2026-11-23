@@ -20,7 +20,7 @@ daily-loop 引擎的架構說明，回答核心問題：**手動 loop 上，誰�
 | `AGENTS-teacher.md` | **writer 的 persona**：「日文學習內容編輯兼日語老師」，整份檔案被 `generate-post.py` 原文塞進 prompt 開頭。注意 repo root 的 `AGENTS.md`（創業家 mentor）與引擎無關，那是 Claude Code session 用的。 |
 | `generate-post.py` | Stage 2，寫初稿；同一支 script 的 `--revise` mode 兼任讀音訂正者。經 OpenRouter 呼叫 `GEN_MODEL`（default `z-ai/glm-5.3`）。 |
 | `annotate-post.py` | Stage 3，deterministic 讀音驗證器（fugashi/UniDic＋JMdict/jamdict＋pykakasi），不是 model。exit 2 = divergent、3 = low_confidence。 |
-| `gate-post.py` | Stage 4 的規則 QA（結構、長度、ruby coverage、翻譯、gold replay）。verdict PASS/FLAG/FAIL，exit 0/3/2；HARD issue → FAIL、SOFT → FLAG。 |
+| `gate-post.py` | Stage 4 的規則 QA（結構、長度、ruby coverage、翻譯、gold replay；長度上限帶 10% 容忍，超過容忍才 FAIL）。verdict PASS/FLAG/FAIL，exit 0/3/2；HARD issue → FAIL、SOFT → FLAG。 |
 | `verify-post.py` | Stage 4 的跨模型審校者，prompt 開頭即「你是日語 N3 教材的審校者（不同於產文的模型）」，模型為 `VERIFY_MODEL`（default `openai/gpt-6.1-sol`），第一行必須是 `VERDICT: PASS\|FLAG\|FAIL`。 |
 | `daily-loop.py` | Orchestrator：select → generate → annotate → gate → verify → tts → finalize → publish → log 的順序、flag 累積、verdict 計算、`Publisher` 的 git/gh 操作全在這。 |
 | `AUTO_PUSH_N3` | GitHub repo variable 的 human veto：`"false"` 時 PASS 也不准直接 push main，改開 PR 給人看。 |
@@ -46,7 +46,7 @@ daily-loop 引擎的架構說明，回答核心問題：**手動 loop 上，誰�
 ### 3. 誰校稿：三層，兩層 deterministic、一層跨模型
 
 1. **`annotate-post.py`（讀音校稿，純 deterministic）**：用 UniDict tokenization、JMdict attestation、pykakasi 三方證據驗證每個 ruby `<rt>` 讀音。divergent → exit 2。
-2. **`gate-post.py`（規則校稿，純 deterministic）**：結構、長度上限/下限、ruby coverage、每段中日對照、單字卡、文法、週日寫作提示、JMdict/EDRDG 授權行、annotation freshness、gold corpus byte-identical replay。HARD issue 整篇 FAIL。
+2. **`gate-post.py`（規則校稿，純 deterministic）**：結構、長度上限（帶 10% 容忍，超過容忍才 FAIL）/下限、ruby coverage、每段中日對照、單字卡、文法、週日寫作提示、JMdict/EDRDG 授權行、annotation freshness、gold corpus byte-identical replay。HARD issue 整篇 FAIL。
 3. **`verify-post.py`（內容品質校稿，跨模型）**：`VERIFY_MODEL`（default `openai/gpt-6.1-sol`）審讀音自然度、N3 適切性、重複度、中譯、結構。select stage 有 preflight：`loop_support.vendors_distinct` 檢查 gen/verify 必須**不同 vendor**，同家則 `verify_allowed = False`、flag `verifier_vendor`——該 run 禁止 auto-PASS，直接變 FLAG 走 PR。verifier 的 FAIL（exit 2）讓整個 run `verifier_fail`；FLAG（exit 3）只累積 flag；回應第一行不是 `VERDICT: ...` 一律視為 transport error（exit 4），`retry_transport` 重試一次。
 
 三層的結果在 orchestrator 匯合：任何 flag（gate soft reason、`verifier_flag`、`low_confidence`、`tts_failed`…）都讓 `loop.result = "flag"`；只有全綠才是 `"pass"`。
