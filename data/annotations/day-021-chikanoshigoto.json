@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-021-chikanoshigoto",
+  "day": 21,
+  "post_sha256": "be5ac97d4f7d0ae9da795c826f0315b708f2143722bbc0c9714984baee3f4290",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 115,
+    "regions": 114,
+    "ok": 114,
+    "ok_contextual": 109,
+    "ok_attested": 5,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
