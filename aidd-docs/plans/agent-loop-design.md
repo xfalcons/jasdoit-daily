@@ -64,7 +64,7 @@ description: "..."
 
 | # | Stage | 做什麼 | 產物 | FAIL 處理 |
 |---|---|---|---|---|
-| 0 | 觸發 | `daily-loop.yml` cron（UTC；台北 06:00 ＝ 前日 22:00 UTC）或 `workflow_dispatch` 補跑 | run 啟動 | 延遲可容忍（§6.2） |
+| 0 | 觸發 | `daily-loop.yml` cron（UTC；台北 03:00 ＝ 前日 19:00 UTC；2026-11-24 前為 06:00）或 `workflow_dispatch` 補跑 | run 啟動 | 延遲可容忍（§6.2） |
 | 1 | 選題 | 讀 `aidd-docs/references/japanese-theme-rotation.md` 的 Day X row；掃 `_posts/` 關鍵字去重 | 當日主題＋核心句 | row 未填（Day 31＋）→ FAIL＋通知（Day 30 前補表） |
 | 2 | 生成 | `AGENTS-teacher.md` persona ＋ 主題 row ＋ 難度/長度約束 ＋ §1 模板；預設 1 篇/天（批次參數保留，上限寫死） | draft markdown | 重試 1 次，再敗 FAIL |
 | 3 | 標註 | fugashi＋unidic-lite → JMdict 交叉檢查 ruby 讀音 → pykakasi 備援 → 低信心標記 | annotation report | 讀音分歧（divergent）→ 先修訂一次（見下方「讀音修訂」），仍分歧才 FAIL；低信心（low_confidence）→ FLAG |
@@ -107,7 +107,7 @@ description: "..."
 ## 6. 已知坑（實作前讀一次）
 
 1. 預設 `GITHUB_TOKEN` push **不會**觸發 `on: push` 的 `pages.yml`（GitHub documented behavior）。解法：loop 用 fine-grained PAT（repo secret，如 `LOOP_PAT`）push；替代方案是 daily-loop 自己 build＋deploy。
-2. cron 全 UTC；scheduled workflow 常態延遲數分鐘、偶爾更久。台北 06:00 出文有緩衝，自用可接受。
+2. cron 全 UTC；scheduled workflow 常態延遲數分鐘、偶爾更久。引擎 03:00（台北）跑、post 蓋 06:00 時戳、`pages.yml` 06:23 rebuild 上架：生成延遲被將近三小時的緩衝吸收，出文時間釘在 06:23 之後，自用可接受。
 3. repo 60 天無 activity 會停用排程；每天有 push，不會遇到。
 4. `db.json`、`public/` 目前被 git 追蹤，屬 build artifact，加進 `.gitignore`（Pages 由 Actions 重建）。
 5. 主題尚無 audio player；article layout 加 `<audio controls src=...>`，吃 `audio_url`。

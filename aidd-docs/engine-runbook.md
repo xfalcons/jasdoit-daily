@@ -82,7 +82,7 @@ fake path 用絕對路徑：stage tools 的 cwd 是 temp sandbox，相對路徑�
 gh variable set ENGINE_LIVE --body "true"
 ```
 
-- 隔天 06:00（台北）cron 自動跑 live。想立即驗：Actions → Daily loop → Run workflow → 勾 `live`。
+- 隔天 03:00（台北）cron 自動跑 live（post 仍蓋 06:00 時戳，站上由 `pages.yml` 06:23 的 rebuild 上架）。想立即驗：Actions → Daily loop → Run workflow → 勾 `live`。
 - 第一天 live 後檢查：`git log` 出現 `content: day NNN post (engine pass)` ＋ `loop: day NNN pass ledger` 兩個 commit；`pages.yml` 被觸發；R2 bucket 出現 `audio/day-NNN.mp3`；文章頁有 `<audio controls preload="none" src="…">`。
 - FLAG 不會 push main：檢查 PR `loop: day NNN FLAG`，人工 review 後 merge。
 

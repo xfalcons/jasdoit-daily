@@ -80,7 +80,7 @@ UI 原則：高信任（字典讀音、TTS）與低信任（AI 講解、譯文�
 
 ## 4. 每日 AI Agent Loop（內容引擎，Phase 1）
 
-觸發：每天固定時間 cron — GitHub Actions scheduled workflow（`daily-loop.yml`，免費、免維運；UTC 排程，台北 06:00 出文）。**確定式管線**，不是讓 agent 自由發揮。完整規格（stage 表、驗證判準、冪等、降級、已知坑）見 `aidd-docs/plans/agent-loop-design.md`。
+觸發：每天固定時間 cron — GitHub Actions scheduled workflow（`daily-loop.yml`，免費、免維運；UTC 排程，台北 03:00 生成、06:23 rebuild 上架）。**確定式管線**，不是讓 agent 自由發揮。完整規格（stage 表、驗證判準、冪等、降級、已知坑）見 `aidd-docs/plans/agent-loop-design.md`。
 
 八個步驟（每步產物落 repo；任一步 FAIL，該篇不出門）：
 1. **選題**：依 Day X 從主題表（`aidd-docs/references/japanese-theme-rotation.md`）對應（Day → 階段 → 當日主題與核心句），附關鍵字去重；日期以主題表為準，不用 runner 的 UTC 時鐘。
