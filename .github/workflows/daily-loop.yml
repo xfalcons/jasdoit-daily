@@ -6,8 +6,8 @@ name: Daily loop
 # input is explicitly true, everything else runs dry.
 on:
   schedule:
-    # 03:00 Taipei daily; posts stay stamped 06:00 and pages.yml's 06:23
-    # rebuild is what puts them live
+    # 03:00 Taipei daily; posts are stamped 03:00 same day, so the
+    # pages.yml build triggered by the engine push publishes them (~03:10)
     - cron: '0 19 * * *'
   workflow_dispatch:
     inputs:

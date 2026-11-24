@@ -107,7 +107,7 @@ description: "..."
 ## 6. 已知坑（實作前讀一次）
 
 1. 預設 `GITHUB_TOKEN` push **不會**觸發 `on: push` 的 `pages.yml`（GitHub documented behavior）。解法：loop 用 fine-grained PAT（repo secret，如 `LOOP_PAT`）push；替代方案是 daily-loop 自己 build＋deploy。
-2. cron 全 UTC；scheduled workflow 常態延遲數分鐘、偶爾更久。引擎 03:00（台北）跑、post 蓋 06:00 時戳、`pages.yml` 06:23 rebuild 上架：生成延遲被將近三小時的緩衝吸收，出文時間釘在 06:23 之後，自用可接受。
+2. cron 全 UTC；scheduled workflow 常態延遲數分鐘、偶爾更久。引擎 03:00（台北）跑、post 自 2026-11-24 起蓋當日 03:00 時戳（此前的歷史文維持 06:00 不動），push 觸發的 `pages.yml` build 即時上架（約 03:10）。時戳在生成開始前就已到期，`future: false` 不會擋文；引擎延遲的上限是自用可接受的「晚幾分鐘出文」。
 3. repo 60 天無 activity 會停用排程；每天有 push，不會遇到。
 4. `db.json`、`public/` 目前被 git 追蹤，屬 build artifact，加進 `.gitignore`（Pages 由 Actions 重建）。
 5. 主題尚無 audio player；article layout 加 `<audio controls src=...>`，吃 `audio_url`。
