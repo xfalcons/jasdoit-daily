@@ -22,10 +22,11 @@ R2_BUCKET=jasdoit-daily
 R2_PUBLIC_BASE=<啟用 public access 後的公開 base URL，無 trailing slash>
 OPENROUTER_API_KEY=<OpenRouter key>
 LOOP_PAT=<fine-grained PAT，見 §3>
-# 選填覆寫（預設 GEN z-ai/glm-5.3、VERIFY openai/gpt-4o，廠商必須不同）。
+# 選填覆寫（預設 GEN z-ai/glm-5.3、VERIFY openai/gpt-6.1-sol；每個 verifier 廠商必須與 GEN 不同）。
 # 留空等同不設：空值不會覆蓋預設。要覆寫才取消註解並填「非空」值。
-#GEN_MODEL=anthropic/claude-sonnet-4.6
-#VERIFY_MODEL=google/gemini-2.5-pro
+#GEN_MODEL=anthropic/claude-opus-5.5
+#VERIFY_MODEL=openai/gpt-6.1-sol
+#VERIFY_MODEL2=z-ai/glm-5.3
 ```
 
 工具會自己讀 `.env`（既有的環境變數優先），值永不印出。
@@ -55,6 +56,9 @@ printf %s "jasdoit-daily"         | gh secret set R2_BUCKET
 printf %s "$OPENROUTER_API_KEY"   | gh secret set OPENROUTER_API_KEY
 printf %s "$LOOP_PAT"             | gh secret set LOOP_PAT
 gh variable set R2_PUBLIC_BASE --body "https://pub-xxxx.r2.dev"
+# 模型覆寫也是 repo variables（workflow 傳 GEN_MODEL／VERIFY_MODEL／VERIFY_MODEL2 給引擎）：
+gh variable set GEN_MODEL --body "anthropic/claude-opus-5.5"
+gh variable set VERIFY_MODEL2 --body "z-ai/glm-5.3"
 # ENGINE_LIVE 先不設（未設＝disarmed）；arming 見 §6
 ```
 
@@ -138,7 +142,7 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 | dispatch 帶 `day` 卻報 usage error | 該天還沒過去（台北）或 >100；補賽只收過去日 |
 | `pending_pr` FAIL | 該天已有開著的 PR（branch `loop/day-NNN`）；先處理 PR |
 | push 失敗 / PR 開不成 | 檢查 `LOOP_PAT` scope（§3）與 repo 權限；branch 已推成功時，重跑同一 day 會走 resume 只補開 PR |
-| `verifier_vendor` FLAG | `GEN_MODEL`／`VERIFY_MODEL` 同廠或格式錯（需 `vendor/model`）；自動 PASS 被擋，改成不同廠 |
+| `verifier_vendor` FLAG | 某個 verifier lane 與 `GEN_MODEL` 同廠或格式錯（需 `vendor/model`）；該 lane 被跳過，run 走 PR。全部 lane 都同廠＝無跨模型審校。改成不同廠 |
 | live FLAG `tts_failed` 且 `audio_url` 空 | `R2_PUBLIC_BASE` 未設（§2）或 TTS render／upload 重試後仍敗；走 PR 不 push main，之後依 §7 補音 |
 | gold replay 紅 | 套件或 Python 版本漂移；見 §9 |
 | `revision_failed` FAIL | 標註 divergent 後已修訂一次，複檢仍 divergent（或修訂工具本身失敗）；看 transcript 的 finding 行（`L<行>:<欄>` 與 unidic 證據），重跑 dispatch，連續出現則照 §8 走手動期 |
@@ -148,7 +152,7 @@ python3 -c "import json;print(json.load(open('data/annotations/day-018-nakama-no
 ## 11. 讀音修訂（單次）與成本上限
 
 - 標註回報 divergent 時，引擎先做恰好一次讀音修訂（`tools/generate-post.py --revise`，模型同 `GEN_MODEL`），只改被標記 ruby 的 `<rt>` 讀音，再重跑標註。仍 divergent 才 FAIL（`revision_failed`）；改到讀音以外的文字直接 FAIL（`revision_violation`）。
-- 成本：2026-11-22 四次真實 dry-run 實測（glm-5.3 生成與修訂、gpt-6.1-sol 驗證），單次生成 US$0.06–0.15（隨輸出長度變動），修訂 US$0.03–0.05，驗證 US$0.02。走完全程的 run 實測 US$0.13，最壞情況約 US$0.22；原估的 US$0.15 上限已被單次生成突破過，不再當上限用。ledger 的 `cost_usd` 是合計。
+- 成本：2026-11-22 四次真實 dry-run 實測（glm-5.3 生成與修訂、gpt-6.1-sol 驗證），單次生成 US$0.06–0.15（隨輸出長度變動），修訂 US$0.03–0.05，驗證 US$0.02。走完全程的 run 實測 US$0.13，最壞情況約 US$0.22；原估的 US$0.15 上限已被單次生成突破過，不再當上限用。ledger 的 `cost_usd` 是合計。2026-11-24 起 GEN 換 anthropic/claude-opus-5.5、verify 加 `VERIFY_MODEL2`（glm-5.3 驗證費趨近零，OpenRouter 報價 in $4/M、out $20/M 對比 glm-5.3 的 $0.07/$1.4），生成成本會高於上列實測，以 ledger 為準。
 - run record 多兩個欄位：`revised`（這個 run 是否修訂過）與 `revision_cost_usd`；`cost_usd` 是生成、修訂、驗證的合計。
 - 字數宣稱：draft gate 之後、驗證之前，引擎用 gate 的實測字數覆寫 front-matter `description` 與導言裡的「約 N 字」（取到十位）。模型自己的估計不會進到發布文。
 - 長度上限容忍：`length.maximum` 的上限帶 10% 容忍（day≤30 上限 300 字，330 字內含仍 PASS，超過即 FAIL）。

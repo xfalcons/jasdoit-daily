@@ -82,6 +82,17 @@ class VerifyPromptTest(unittest.TestCase):
         self.assertIn("Day 18《仲間の存在》", prompt)
         self.assertIn("VERDICT:", prompt)
 
+    def test_verify_prompt_checks_native_naturalness(self):
+        prompt = verify_post.build_prompt("POST", [])
+        self.assertIn("自然性", prompt)
+        self.assertIn("日本人實際會說", prompt)
+
+    def test_generate_prompt_demands_native_naturalness(self):
+        row = loop_support.ThemeRow(19, "小さな勝利を祝う", "慶祝小勝利", "小さな勝利を祝う人は、長く続く。")
+        prompt = generate_post.build_prompt("PERSONA", row, 19, False, "GOLD", [])
+        self.assertIn("日本人實際會說", prompt)
+        self.assertIn("日本人會這樣用嗎", prompt)
+
 
 DIVERGENT_FINDINGS = [
     {"line": 30, "col": 24, "surface": "教室", "rt": "きょうしち", "verdict": "divergent",
@@ -151,6 +162,15 @@ class FakeModeTest(unittest.TestCase):
         post = str(FIXTURES / "day-019-chiisana-shouri-wo-iwau.md")
         proc = run_tool("verify-post.py", [post], {})
         self.assertEqual(proc.returncode, 4)
+
+    def test_model_flag_names_the_lane_model_in_meta(self):
+        post = str(FIXTURES / "day-019-chiisana-shouri-wo-iwau.md")
+        proc = run_tool("verify-post.py", ["--model", "z-ai/glm-5.3", post],
+                        {"VERIFY_FAKE_PATH": str(FIXTURES / "verify-pass.txt"),
+                         "VERIFY_MODEL": "openai/gpt-6.1-sol"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        meta = [ln for ln in proc.stdout.splitlines() if ln.startswith("META ")][-1]
+        self.assertEqual(json.loads(meta[5:])["model"], "z-ai/glm-5.3")
 
     def test_generate_fake_writes_draft(self):
         with tempfile.TemporaryDirectory() as tmp:

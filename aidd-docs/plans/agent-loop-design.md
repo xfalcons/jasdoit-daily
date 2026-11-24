@@ -75,6 +75,8 @@ description: "..."
 
 讀音修訂（2026-11-22 決定）：stage 3 標註回報 divergent 時，引擎先用 stage 2 的工具做恰好一次讀音修訂（`tools/generate-post.py --revise`），再重跑標註。修訂 prompt 帶整篇 draft 與 annotation report 的每個 finding 及其證據，只允許更正被標記 ruby 的 `<rt>` 讀音（`malformed_ruby` 行可一併修復標記）；重跑標註前，引擎先驗證「抹掉所有 `<rt>` 內容後兩份 draft 逐字相同，僅 `malformed_ruby` 行除外」，不符即 FAIL（`revision_violation`），重跑仍 divergent 則 FAIL（`revision_failed`）。每個 run 最多修訂一次；run record 記 `revised` 與 `revision_cost_usd`。
 
+雙 verifier 與自然性（2026-11-24 決定）：stage 4 的跨模型 verifier 擴為逐 lane 執行——`VERIFY_MODEL` 先跑，選填的 `VERIFY_MODEL2`（同一份 prompt、不同模型）再跑一次，verdict 取最壞（任一 FAIL → run FAIL；任一 FLAG → run FLAG）。每個 lane 與 `GEN_MODEL` 同廠時跳過並 flag `verifier_vendor`；`VERIFY_MODEL2` 與 `VERIFY_MODEL` 相同時丟棄該 lane。同日生成與驗證 prompt 都加入自然性要求：每個日文句子都必須是日本人實際會說、會寫的日語（寫作端逐句自問「日本人會這樣用嗎？」；verifier 端列為獨立審查項，直譯腔與課本假句要給自然講法）。front-matter `verified_by` 列實際上場的 lanes；run record 增 `model_verify2`。
+
 ## 3. 驗證閘門判準
 
 - **PASS**：rule QA 全過（長度上限、§1.3 章節齊全、ruby 完整、逐段中譯存在、N3 詞表比對）＋ 跨模型 verifier 無重大分歧 ＋ gold sample 回歸全綠 → 自動發布。
