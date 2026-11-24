@@ -100,6 +100,7 @@ class FakeRunners:
         self.annotate_codes = list(annotate or [0])
         self.gate_codes = list(gate or [0])
         self.verify_codes = list(verify or [0])
+        self.verify_models = []
         self.tts_codes = list(tts or [0])
 
     def _next(self, codes, name):
@@ -112,7 +113,7 @@ class FakeRunners:
             revise=lambda draft, findings, out: self.revise(draft, findings, out),
             annotate=lambda post: self.annotate(post),
             gate=lambda post, json_out: self.gate(post, json_out),
-            verify=lambda post, digest: self.verify(post),
+            verify=lambda post, digest, model=None: self.verify(post, model),
             tts=lambda post, dry: self.tts(post),
         )
         return runners
@@ -157,8 +158,9 @@ class FakeRunners:
             json_out.write_text(json.dumps({"posts": [{"checks": checks}]}), encoding="utf-8")
         return rc, "", "", None
 
-    def verify(self, post):
+    def verify(self, post, model=None):
         self.verify_seen.append(post.read_text(encoding="utf-8"))
+        self.verify_models.append(model)
         rc = self._next(self.verify_codes, "verify")
         return rc, "", "", {"cost_usd": 0.004} if rc in (0, 3) else None
 
@@ -623,6 +625,72 @@ class FlagTransitionTest(unittest.TestCase):
             self.assertEqual(runners.calls.count("verify"), 0)
 
 
+class DualVerifierTest(unittest.TestCase):
+    """VERIFY_MODEL2 adds a second lane: both run, worst-of verdict, and the
+    vendor preflight skips only the offending verifier."""
+
+    def production_env(self):
+        return {"GEN_MODEL": "anthropic/claude-opus-5.5",
+                "VERIFY_MODEL": "openai/gpt-6.1-sol",
+                "VERIFY_MODEL2": "z-ai/glm-5.3"}
+
+    def test_both_verifiers_run_and_are_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            code, loop, transcript = run(repo, runners, env=self.production_env())
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            self.assertEqual(runners.calls.count("verify"), 2)
+            self.assertEqual(runners.verify_models,
+                             ["openai/gpt-6.1-sol", "z-ai/glm-5.3"])
+            self.assertEqual(loop.record_dict["model_verify"], "openai/gpt-6.1-sol")
+            self.assertEqual(loop.record_dict["model_verify2"], "z-ai/glm-5.3")
+            self.assertEqual(loop.record_dict["cost_usd"], 0.02)
+            final = runners.posts_seen[-1]
+            self.assertIn("generated_by: anthropic/claude-opus-5.5@openrouter", final)
+            self.assertIn("verified_by: openai/gpt-6.1-sol@openrouter, "
+                          "z-ai/glm-5.3@openrouter", final)
+
+    def test_second_verifier_fail_fails_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners(verify=[0, 2])
+            code, loop, _ = run(repo, runners, env=self.production_env())
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["verifier_fail"])
+
+    def test_same_vendor_second_verifier_is_skipped_not_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            code, loop, _ = run(repo, runners, env={
+                "GEN_MODEL": "z-ai/glm-5.3", "VERIFY_MODEL": "openai/gpt-4o",
+                "VERIFY_MODEL2": "z-ai/glm-4.6"})
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "flag")
+            self.assertIn("verifier_vendor", loop.reasons)
+            self.assertEqual(runners.calls.count("verify"), 1)
+            self.assertEqual(runners.verify_models, ["openai/gpt-4o"])
+            self.assertEqual(loop.record_dict["model_verify2"], "z-ai/glm-4.6")
+            final = runners.posts_seen[-1]
+            self.assertIn("verified_by: openai/gpt-4o@openrouter", final)
+            self.assertNotIn("glm-4.6", final)
+
+    def test_duplicate_second_verifier_lane_is_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            code, loop, transcript = run(repo, runners, env={
+                "VERIFY_MODEL": "openai/gpt-4o",
+                "VERIFY_MODEL2": "openai/gpt-4o"})
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "pass")
+            self.assertEqual(runners.calls.count("verify"), 1)
+            self.assertIn("dropping the duplicate lane", transcript)
+            self.assertIsNone(loop.record_dict["model_verify2"])
+
+
 class FinalizeRefreezeTest(unittest.TestCase):
     def test_final_gate_flag_refreezes_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -864,10 +932,14 @@ class FrontMatterQuotingTest(unittest.TestCase):
         row = daily_loop.loop_support.ThemeRow(19, "小さな勝利", "重點", "核心句。")
         post = daily_loop.compose_post(row, 19, date(2026, 11, 22), "body",
                                        '練習 "成功" 的表達', "pass", "https://x/y.mp3",
-                                       "z-ai/glm-5.3", "openai/gpt-4o", 0.01)
+                                       "z-ai/glm-5.3",
+                                       "openai/gpt-4o@openrouter, z-ai/glm-5.3@openrouter",
+                                       0.01)
         self.assertTrue(daily_loop.front_matter_valid(post),
                         msg=post.split("---")[1])
         self.assertIn('description: "練習 \\"成功\\" 的表達"', post)
+        self.assertIn("verified_by: openai/gpt-4o@openrouter, "
+                      "z-ai/glm-5.3@openrouter", post)
 
     def test_validator_rejects_unclosed_quotes_and_bad_lines(self):
         unclosed = '---\ndescription: "unclosed\n---\nbody'
@@ -890,8 +962,9 @@ class StateSchemaTest(unittest.TestCase):
             _, loop, _ = run(repo, FakeRunners())
             record = loop.record_dict
             for key in ("ts", "day", "live", "result", "reasons", "model_gen",
-                        "model_verify", "stage_reached", "audio_url", "cost_usd",
-                        "revised", "revision_cost_usd", "latency_ms"):
+                        "model_verify", "model_verify2", "stage_reached",
+                        "audio_url", "cost_usd", "revised", "revision_cost_usd",
+                        "latency_ms"):
                 self.assertIn(key, record)
             self.assertEqual(record["day"], 19)
             self.assertFalse(record["live"])

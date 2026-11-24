@@ -6,11 +6,17 @@ Usage:
 
 Condensed form of the manual day-15..18 review prompts, plus the
 N3-appropriateness item (Ruling A: a completed verifier PASS closes the
-n3_vocabulary seam for this run) and the repetition item against the
-previous five titles/core sentences (amendment 17). The response's first
-line must be `VERDICT: PASS|FLAG|FAIL`; anything unparseable is a model
-error (exit 4), never a guessed verdict. VERIFY_FAKE_PATH reads a fixture
-response instead of calling the API (tests, dry-runs).
+n3_vocabulary seam for this run), the repetition item against the
+previous five titles/core sentences (amendment 17), and the naturalness
+item (2026-11-24: would a Japanese native actually use this sentence?).
+The response's first line must be `VERDICT: PASS|FLAG|FAIL`; anything
+unparseable is a model error (exit 4), never a guessed verdict.
+VERIFY_FAKE_PATH reads a fixture response instead of calling the API
+(tests, dry-runs).
+
+The orchestrator runs this tool once per configured verifier
+(VERIFY_MODEL, then optional VERIFY_MODEL2), passing --model each time;
+a bare invocation still resolves VERIFY_MODEL from the environment.
 
 Exit codes: 0 PASS, 1 usage error, 2 FAIL, 3 FLAG, 4 transport/model error.
 The last stdout line is one META json object.
@@ -52,10 +58,11 @@ def build_prompt(post_text: str, digest_lines: list[str]) -> str:
 
 檢查項目：
 1. 讀音與標音：ruby 讀音是否正確、自然。
-2. N3 適切性：用字與句型是否符合 JLPT N3（不超綱、不過易）；不合適要指出。
-3. 重複度：與近五篇的主題/核心句是否重複（digest 如下）。
-4. 中譯：每段中譯是否正確、自然（繁體中文）。
-5. 結構與長度：章節齊全、日文正文長度合理、內容連貫。
+2. 自然性：每個日文句子是否是日本人實際會說、會寫的說法（語感、詞語搭配、語域）。中文直譯腔、生硬湊句、只有課本才出現的假句子都要指出，並建議自然的講法。
+3. N3 適切性：用字與句型是否符合 JLPT N3（不超綱、不過易）；不合適要指出。
+4. 重複度：與近五篇的主題/核心句是否重複（digest 如下）。
+5. 中譯：每段中譯是否正確、自然（繁體中文）。
+6. 結構與長度：章節齊全、日文正文長度合理、內容連貫。
 
 輸出格式（嚴格）：
 第一行只能是 `VERDICT: PASS`、`VERDICT: FLAG` 或 `VERDICT: FAIL` 之一。
@@ -93,6 +100,8 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description="Stage 4 cross-model verifier")
     parser.add_argument("post", type=Path)
     parser.add_argument("--digest", type=Path, default=None)
+    parser.add_argument("--model", default=None,
+                        help="model slug for this call; overrides VERIFY_MODEL")
     return parser.parse_args(argv)
 
 
@@ -111,6 +120,9 @@ def main(argv=None) -> int:
                 f"- Day {post['day']}《{post['title']}》core：{post['core']}"
             )
 
+    # Resolved for both modes so a fake run can still assert which model a
+    # --model call would use; only the real path needs the key.
+    model = args.model or os.environ.get("VERIFY_MODEL") or DEFAULT_MODEL
     fake = os.environ.get("VERIFY_FAKE_PATH")
     if fake:
         try:
@@ -118,10 +130,8 @@ def main(argv=None) -> int:
         except OSError as exc:
             print(f"verify-post: cannot read VERIFY_FAKE_PATH {fake}: {exc}", file=sys.stderr)
             return TRANSPORT
-        model = None
         usage = None
     else:
-        model = os.environ.get("VERIFY_MODEL") or DEFAULT_MODEL
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             print("verify-post: OPENROUTER_API_KEY not set", file=sys.stderr)

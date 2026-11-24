@@ -7,6 +7,11 @@ publish, log for a single day. All engine policy lives here. A divergent
 annotate gets exactly one reading revision (evidence from the annotation
 report, <rt> readings only) before the run fails.
 
+Verify runs one verifier per configured lane, VERIFY_MODEL first and the
+optional VERIFY_MODEL2 second (2026-11-24), worst-of: any verifier FAIL
+fails the run, any FLAG flags it, and a verifier sharing the gen vendor
+is skipped with verifier_vendor instead of running.
+
 Every run executes inside a temp sandbox (amendment 1): posts, annotations,
 the theme table, tools and the ledger are copied to mkdtemp and each stage
 writes only there. A dry run never touches the real tree. Live publishing
@@ -368,7 +373,7 @@ def front_matter_valid(post_text: str) -> bool:
 
 def compose_post(row: loop_support.ThemeRow, day: int, day_date: date, body: str,
                  description: str, status: str, audio_url: str | None,
-                 gen_model: str, verify_model: str, cost_usd: float | None) -> str:
+                 gen_model: str, verified_by: str, cost_usd: float | None) -> str:
     fm = [
         "---",
         f"title: {yaml_double_quoted(f'Day {day}｜{row.title_ja}')}",
@@ -385,7 +390,7 @@ def compose_post(row: loop_support.ThemeRow, day: int, day_date: date, body: str
         f"audio_url: {audio_url or ''}",
         f"status: {status}",
         f"generated_by: {gen_model}@openrouter",
-        f"verified_by: {verify_model}@openrouter",
+        f"verified_by: {verified_by}",
     ]
     if cost_usd is not None:
         fm.append(f"cost_usd: {cost_usd}")
@@ -496,10 +501,12 @@ def subprocess_runners(sandbox: Path, day: int) -> Runners:
     def gate(post: Path, json_out: Path):
         return _spawn([str(tools / "gate-post.py"), str(post), "--json", str(json_out)], sandbox)
 
-    def verify(post: Path, digest: Path | None):
+    def verify(post: Path, digest: Path | None, model: str | None = None):
         cmd = [str(tools / "verify-post.py"), str(post)]
         if digest:
             cmd += ["--digest", str(digest)]
+        if model:
+            cmd += ["--model", model]
         return _spawn(cmd, sandbox)
 
     def tts(post: Path, dry: bool):
@@ -639,6 +646,7 @@ class Loop:
             "reasons": list(self.reasons),
             "model_gen": self.models.get("gen"),
             "model_verify": self.models.get("verify"),
+            "model_verify2": self.models.get("verify2"),
             "stage_reached": self.stage_reached,
             "audio_url": self.audio_url,
             "cost_usd": self.cost_usd,
@@ -661,12 +669,24 @@ class Loop:
 
         self.models["gen"] = self.env.get("GEN_MODEL") or DEFAULT_GEN_MODEL
         self.models["verify"] = self.env.get("VERIFY_MODEL") or DEFAULT_VERIFY_MODEL
-        verify_allowed = True
-        if not loop_support.vendors_distinct(self.models["gen"], self.models["verify"]):
-            self.flag("verifier_vendor")
-            self.say(f"preflight: {self.models['gen']} / {self.models['verify']} are not "
-                     "distinct vendors; auto-PASS forbidden this run")
-            verify_allowed = False
+        second = (self.env.get("VERIFY_MODEL2") or "").strip()
+        if second and second == self.models["verify"]:
+            self.say("preflight: VERIFY_MODEL2 equals VERIFY_MODEL; dropping the duplicate lane")
+            second = ""
+        self.models["verify2"] = second or None
+        # Prefiltered verifier lanes: a verifier sharing the gen vendor never
+        # runs, and the front-matter's verified_by lists exactly these.
+        self.verifiers = []
+        for key in ("verify", "verify2"):
+            model = self.models.get(key)
+            if not model:
+                continue
+            if not loop_support.vendors_distinct(self.models["gen"], model):
+                self.flag("verifier_vendor")
+                self.say(f"preflight: {self.models['gen']} / {model} are not "
+                         "distinct vendors; this verifier is skipped")
+                continue
+            self.verifiers.append((key, model))
         self.stage_done("select")
 
         self.stage("generate")
@@ -689,7 +709,9 @@ class Loop:
         self.post = self.sandbox / "source" / "_posts" / f"{self.stem}.md"
         self.post.write_text(
             compose_post(row, self.day, day_date, body, description, "pass", None,
-                         self.models["gen"], self.models["verify"], self.cost_usd),
+                         self.models["gen"],
+                         ", ".join(f"{model}@openrouter" for _, model in self.verifiers),
+                         self.cost_usd),
             encoding="utf-8",
         )
         self.say(f"post composed: {self.stem} ({len(body)} chars body)")
@@ -707,9 +729,10 @@ class Loop:
             )
 
         self.stage("verify")
-        if verify_allowed:
+        for key, model in self.verifiers:
+            self.say(f"verifier: {model}")
             rc, stdout, stderr, meta = self.retry_transport(
-                lambda: self.runners.verify(self.post, digest)
+                lambda m=model: self.runners.verify(self.post, digest, m)
             )
             self.echo(stdout, stderr)
             if self.live and meta and meta.get("fake"):
@@ -724,7 +747,7 @@ class Loop:
                 raise FailRun("verifier_error")
             if meta and meta.get("cost_usd") is not None:
                 self.cost_usd = (self.cost_usd or 0) + meta["cost_usd"]
-        else:
+        if not self.verifiers:
             self.say("verify skipped (vendor preflight)")
         self.stage_done("verify")
         body_sha = sha256_text(body_of(self.post.read_text(encoding="utf-8")))
