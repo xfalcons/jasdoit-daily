@@ -213,7 +213,7 @@ class HappyPathTest(unittest.TestCase):
             final = runners.posts_seen[-1]
             self.assertIn("status: pass", final)
             self.assertIn(f"audio_url: {TTS_META['url']}", final)
-            self.assertIn("date: 2026-11-22 06:00:00", final)
+            self.assertIn("date: 2026-11-22 03:00:00", final)
             self.assertIn("generated_by: z-ai/glm-5.3@openrouter", final)
             self.assertIn("verified_by: openai/gpt-4o@openrouter", final)
 

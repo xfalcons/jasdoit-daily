@@ -377,7 +377,7 @@ def compose_post(row: loop_support.ThemeRow, day: int, day_date: date, body: str
     fm = [
         "---",
         f"title: {yaml_double_quoted(f'Day {day}｜{row.title_ja}')}",
-        f"date: {day_date} 06:00:00",
+        f"date: {day_date} 03:00:00",
         "lang: zh-TW",
         "layout: post",
         "learning: true",
