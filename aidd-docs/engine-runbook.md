@@ -7,7 +7,7 @@
 ## 0. 詞彙
 
 - **Arming**：`ENGINE_LIVE` repo variable ＝ `"true"` 時 schedule 才會 live；dispatch 只有勾 `live` input 才 live；其他一律 dry-run（含本機不帶 `--live` 的執行）。
-- **Verdict**：PASS → push main 直接發布；FLAG → `loop/day-NNN` branch ＋ PR 進 review queue；FAIL → 不出內容，只 commit log（Ruling B），Actions email 會通知。
+- **Verdict**：PASS → push main 直接發布；FLAG → `loop/day-NNN` branch ＋ PR 進 review queue（verifier findings 直接附在 PR body 的 `## verifier findings` 區塊，不用翻 Actions log）；FAIL → 不出內容，只 commit log（Ruling B），Actions email 會通知。判準（2026-11-25 校準）：FLAG 只留會讓學習者學錯的內容（誤導性解說、中文詞誤標日語讀音、同形異義混淆、示範錯誤用法）；JLPT 級別疑慮與語感建議只進 findings，不影響 verdict。
 - **Degrade**：live 連 3 天 FAIL（主題表連續日期）→ `data/engine-state.json` 記 `degraded: true`，之後 schedule 一律強制 dry；手動 dispatch 連 2 天 PASS 才恢復。
 
 ## 1. 本機 `.env`（gitignored；與 Actions secrets 同名）

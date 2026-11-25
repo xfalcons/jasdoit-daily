@@ -162,7 +162,15 @@ class FakeRunners:
         self.verify_seen.append(post.read_text(encoding="utf-8"))
         self.verify_models.append(model)
         rc = self._next(self.verify_codes, "verify")
-        return rc, "", "", {"cost_usd": 0.004} if rc in (0, 3) else None
+        stdout = ""
+        if rc in (0, 3):
+            verdict = "PASS" if rc == 0 else "FLAG"
+            stdout = (f"VERDICT: {verdict}\n\n"
+                      "1. **位置：** 文法解說\n"
+                      "   **問題：** 說法過絕對。\n"
+                      "   **建議：** 說明成立條件。\n"
+                      f'META {{"stage": "verify", "verdict": "{verdict}"}}')
+        return rc, stdout, "", {"cost_usd": 0.004} if rc in (0, 3) else None
 
     def tts(self, post):
         rc = self._next(self.tts_codes, "tts")
@@ -1171,6 +1179,24 @@ class LivePublishTest(unittest.TestCase):
             self.assertEqual(branch_ledger, "", "PR branch must not touch the ledger")
             self.assertEqual(len(stub.create_calls()), 1)
             self.assertIn("--head loop/day-019", stub.create_calls()[0])
+            self.assert_ambient_untouched()
+
+    def test_verifier_flag_pr_body_carries_findings(self):
+        runners = FakeRunners(verify=[3, 0])
+        env = {"VERIFY_MODEL": "openai/gpt-4o", "VERIFY_MODEL2": "openai/gpt-4o-mini"}
+        with gh_on_path(GhStub(Path(self.tmp.name))) as stub:
+            code, loop, _ = run_live(self.repo, runners, env=env)
+            self.assertEqual(code, 0)
+            self.assertEqual(loop.result, "flag")
+            self.assertEqual(len(stub.create_calls()), 1)
+            log = stub.log.read_text(encoding="utf-8")
+            self.assertIn("## verifier findings", log)
+            self.assertIn("## verifier openai/gpt-4o", log)
+            self.assertIn("VERDICT: FLAG", log)
+            self.assertIn("## verifier openai/gpt-4o-mini", log)
+            self.assertIn("VERDICT: PASS", log)
+            self.assertIn("說法過絕對", log)
+            self.assertNotIn("META {", log.split("## verifier findings")[1])
             self.assert_ambient_untouched()
 
     def test_fail_commits_ledger_and_state_only(self):

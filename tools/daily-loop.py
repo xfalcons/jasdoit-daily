@@ -592,6 +592,12 @@ def malformed_ruby_lines(report_path: Path) -> set[int]:
         return set()
 
 
+def clean_verifier_output(stdout: str) -> str:
+    """Verifier response without the trailing META line."""
+    lines = [ln for ln in stdout.splitlines() if not ln.lstrip().startswith("META ")]
+    return "\n".join(lines).strip()
+
+
 # --- the run ---------------------------------------------------------------------
 
 
@@ -607,6 +613,7 @@ class Loop:
     degraded_forced: bool = False
 
     reasons: list = field(default_factory=list)
+    verifier_notes: list = field(default_factory=list)
     flagged: bool = False
     stage_reached: str = "noop"
     audio_url: str | None = None
@@ -636,6 +643,14 @@ class Loop:
         if reason not in self.reasons:
             self.reasons.append(reason)
         self.flagged = True
+
+    def verifier_section(self) -> str:
+        # Findings ride the FLAG PR body so review reads them there, not
+        # in the Actions transcript.
+        if not self.verifier_notes:
+            return ""
+        parts = [f"## verifier {model}\n\n{text}" for model, text in self.verifier_notes]
+        return "\n\n## verifier findings\n\n" + "\n\n".join(parts)
 
     def record(self, ts: str) -> dict:
         return {
@@ -737,6 +752,10 @@ class Loop:
             self.echo(stdout, stderr)
             if self.live and meta and meta.get("fake"):
                 raise FailRun("fake_mode_in_live")
+            if rc in (0, 3):
+                text = clean_verifier_output(stdout)
+                if text:
+                    self.verifier_notes.append((model, text))
             if rc == 4:
                 self.flag("verifier_unavailable")
             elif rc == 2:
@@ -1065,7 +1084,8 @@ class Publisher:
                                 f"engine {loop.result}: {day_tag}\n"
                                 f"reasons: {', '.join(loop.reasons) or '-'}\n"
                                 f"record: {json.dumps(loop.record_dict, ensure_ascii=False)}\n"
-                                "publish: event line rides this PR body, not the ledger")
+                                "publish: event line rides this PR body, not the ledger"
+                                + loop.verifier_section())
             event["pr_url"] = pr_url
             if pr_url is None:
                 # Content is on the pushed branch; rerunning the day resumes
