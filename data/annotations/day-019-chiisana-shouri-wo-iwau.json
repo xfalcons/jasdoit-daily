@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-019-chiisana-shouri-wo-iwau",
   "day": 19,
-  "post_sha256": "b403b8aa9b18f52ab05ac861888a2dcf786bfae9cae403915ab18361265a0991",
+  "post_sha256": "e01251cc6d5c2e27180f6cfd8df13392255d3a7867be9a6b874323c3f17bb99a",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

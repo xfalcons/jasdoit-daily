@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-004-watashi-no-riyuu",
   "day": 4,
-  "post_sha256": "71aadff46929f644b8a3a88e27a63e022b65526ca5308d738d22ac90c585a70f",
+  "post_sha256": "0cc92f36c3c329477fc6f0dbfb43f9be82264c7feca0d84aaeba9871bda0bb20",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

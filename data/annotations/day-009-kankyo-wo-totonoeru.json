@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-009-kankyo-wo-totonoeru",
   "day": 9,
-  "post_sha256": "58fec1c0798af1232d489743531c00c8ee0dfefdd5437970416176027e3b3960",
+  "post_sha256": "c5cc09d86733505f0b90cec73d89aa5ede08b3e27b322658fb5e53b4dc7d82e9",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

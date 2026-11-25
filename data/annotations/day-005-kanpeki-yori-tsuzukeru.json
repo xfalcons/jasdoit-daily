@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-005-kanpeki-yori-tsuzukeru",
   "day": 5,
-  "post_sha256": "343f931c57dbc17403e2127e5ad641290912db851af77cf8fd820c28bee61109",
+  "post_sha256": "de5e52f16b79cec1af6362f30cf9e596fcb7f2be9a3f16ba41141bf63d45daaa",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

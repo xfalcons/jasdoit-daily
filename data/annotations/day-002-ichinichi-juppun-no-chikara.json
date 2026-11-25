@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-002-ichinichi-juppun-no-chikara",
   "day": 2,
-  "post_sha256": "a248517efb406854e81471afc6ef863aa9c2549ff0febb8d925de909d419743b",
+  "post_sha256": "200ce5e2403ad0cebbf02406ed35c4eabb7b500d233440f69b95a4bd4f5b4002",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-007-yukkuri-demo-mae-e",
   "day": 7,
-  "post_sha256": "6d5e8fbb7badc5fde6726cfdcca0438e9408a09bf10845d2b8fccc409d89e708",
+  "post_sha256": "691388266801ff5793d90e98294116a6536f0519ebef7248e16b13d87779e383",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

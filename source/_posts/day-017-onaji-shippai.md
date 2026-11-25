@@ -10,7 +10,7 @@ phase: 2
 reading_title: 同じ失敗、新しい学び
 level: N3
 core_sentence: 同じ失敗でも、学びは新しい。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-017.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: annotate-post (91 ok/0 divergent/0 low) + codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max (FAIL/FLAG, 15 findings all applied)

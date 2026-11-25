@@ -10,7 +10,7 @@ phase: 2
 reading_title: 小さな勝利を祝う
 level: N3
 core_sentence: 小さな勝利を祝う人は、学びを長く続けられる。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-019.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: annotate-post (87 ok/0 divergent/0 low) + gate-post PASS 256/300 + codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max (FLAG/FLAG, 22 findings all applied)

@@ -10,7 +10,7 @@ phase: 2
 reading_title: 準備が整わなくても
 level: N3
 core_sentence: 整った準備より、今日の一歩。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-016.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: annotate-post (86 ok/0 divergent/0 low) + codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max (FAIL/FLAG, 17 findings all applied)

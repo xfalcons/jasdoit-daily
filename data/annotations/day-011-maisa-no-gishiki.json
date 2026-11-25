@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-011-maisa-no-gishiki",
   "day": 11,
-  "post_sha256": "882c977a06faf0d6b35984e2ca596fed516eb606c62f658c25b018c1468b7463",
+  "post_sha256": "757192353429d5fb358ed818ea55408426d40e584a47fbc350b589a1849d6680",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

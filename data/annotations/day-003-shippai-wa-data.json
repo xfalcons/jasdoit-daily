@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-003-shippai-wa-data",
   "day": 3,
-  "post_sha256": "2b26aa395975189a8017ed597592198ee1b572036ec770860105d2af2a96e02a",
+  "post_sha256": "a5959061c950c3150a5de5a9d6e1cfd2dd1e58fa2a1ee58513ae57a49e884250",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

@@ -10,7 +10,7 @@ phase: 2
 reading_title: 忘れるのは当たり前
 level: N3
 core_sentence: 忘れることは、学びの一部だ。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-015.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max (FAIL/PASS, 9 findings all applied)

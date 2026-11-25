@@ -10,7 +10,7 @@ phase: 1
 reading_title: 言葉の温度
 level: N3
 core_sentence: 言葉には、その土地の温度がある。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-008.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max

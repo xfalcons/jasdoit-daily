@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-013-koe-ni-dasu-yuki",
   "day": 13,
-  "post_sha256": "ab172990013c65d01257149e77642ff339eacd311abd3f7777e856b6466ca160",
+  "post_sha256": "a80d9fb4d5e0d5da9bc72239452112fe61a15046365cd839c81072eefb1c59f0",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

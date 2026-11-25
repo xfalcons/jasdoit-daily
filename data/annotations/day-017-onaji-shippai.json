@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-017-onaji-shippai",
   "day": 17,
-  "post_sha256": "4742b7e292657319b83b6f56b70e01442024a4ab86e33ddda06faa86e9cb1c7d",
+  "post_sha256": "1114cdb4714b1b6af58f1a3589189394c13e7372a07e6d7900cb50a9565b7644",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

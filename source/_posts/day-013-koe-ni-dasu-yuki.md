@@ -10,7 +10,7 @@ phase: 2
 reading_title: 声に出す勇気
 level: N3
 core_sentence: 声に出すことで、言葉は体に入る。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-013.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: codex:gpt-6.1-sol@max (r1 FAIL 5 findings, r2 FLAG 2 findings, all applied)

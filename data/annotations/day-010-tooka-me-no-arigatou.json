@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-010-tooka-me-no-arigatou",
   "day": 10,
-  "post_sha256": "7e6b588561f7e167db7c20b4bc28a1cc3e9c7885a4d41f07feee2a8042f459a2",
+  "post_sha256": "d178dd7e46668dd134ea52d2543259922174f003ea1da033516c147b13deefcf",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

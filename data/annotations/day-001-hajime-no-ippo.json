@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-001-hajime-no-ippo",
   "day": 1,
-  "post_sha256": "4889957a667a808908257bde3a52f095e4d9c18eb14000034602ec7c97c02489",
+  "post_sha256": "e2628982c43e7fc0f93b6cb83a7427fc8be193d248822e10aad29904f9d18231",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

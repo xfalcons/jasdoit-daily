@@ -10,7 +10,7 @@ phase: 2
 reading_title: 耳を育てる
 level: N3
 core_sentence: 耳は、少しずつ日本語に慣れていく。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-012.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: opencode:zai-coding-plan/glm-5.3-flash@max (codex lane host-sandbox dropout)

@@ -10,7 +10,7 @@ phase: 1
 reading_title: 完璧より、続ける
 level: N3
 core_sentence: 完璧より、続けるほうが強い。
-audio_url:
+audio_url: https://pub-b77bad5d076c4b73ad9015dc76714986.r2.dev/audio/day-005.mp3
 status: pass
 generated_by: claude:glm-5.3@max
 verified_by: codex:gpt-6.1-sol@max + opencode:zai-coding-plan/glm-5.3-flash@max
