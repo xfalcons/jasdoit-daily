@@ -66,8 +66,12 @@ def build_prompt(post_text: str, digest_lines: list[str]) -> str:
 
 輸出格式（嚴格）：
 第一行只能是 `VERDICT: PASS`、`VERDICT: FLAG` 或 `VERDICT: FAIL` 之一。
-PASS＝無重大問題可自動發布；FLAG＝可疑需人工 3–5 分鐘 review；FAIL＝重大錯誤不可發布。
 之後逐條列出 findings（編號、位置、問題、建議）；無問題寫「無重大 finding」。
+
+verdict 判準（照此分級，不要自行加嚴）：
+- FAIL＝不可發布的重大錯誤：ruby 讀音錯誤、明確文法錯誤、誤譯或漏譯改變語意、結構缺漏、與近五篇主題或核心句重複。
+- FLAG＝會讓學習者學到錯誤內容或明顯誤導的問題：中文詞誤標日語讀音、教學解說與例句或常見辭典用法矛盾、同形異義詞比較未標明語言而造成混淆、例句示範錯誤用法。判準是「讀者照著學會學錯」，不是「寫得不夠好」。
+- PASS＝可自動發布。以下一律 PASS，只寫進 findings 供人工參考：JLPT 級別疑慮（JLPT 無官方詞表，稍進階詞彙只標「延伸詞彙」建議）、語感或更自然講法建議、稱謂語域補充、字數小幅差異、中譯可更精準。findings 多條不影響 PASS。
 
 近五篇 digest：
 {digest}
