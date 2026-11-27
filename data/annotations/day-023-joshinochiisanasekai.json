@@ -1,0 +1,25 @@
+{
+  "tool": "annotate-post",
+  "schema": 1,
+  "post": "day-023-joshinochiisanasekai",
+  "day": 23,
+  "post_sha256": "267a7f62be0b6f8c868bddeb4cd94afabeed492fd915de60807d3405d2e71102",
+  "sources": {
+    "python": "3.13.7",
+    "fugashi": "1.5.2",
+    "unidic-lite": "1.0.8",
+    "jamdict": "0.1a11.post2",
+    "jamdict_data": "1.5",
+    "pykakasi": "2.3.0"
+  },
+  "counts": {
+    "ruby": 94,
+    "regions": 94,
+    "ok": 94,
+    "ok_contextual": 84,
+    "ok_attested": 10,
+    "low_confidence": 0,
+    "divergent": 0
+  },
+  "findings": []
+}
