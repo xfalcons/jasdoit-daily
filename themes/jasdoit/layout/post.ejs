@@ -28,6 +28,20 @@
       <% } %>
       <article class="article-content" data-learning="<%= !!page.learning %>"><%- page.content %></article>
       <div class="reading-end"><span aria-hidden="true">✦</span><p>今天也多讀懂了一點。</p><a href="#main">回到文章開頭 ↑</a></div>
+      <% if (Array.isArray(page.verifier_reports) && page.verifier_reports.length) { %>
+      <details class="verifier-reports">
+        <summary>AI 校稿紀錄 <span class="verifier-report-count"><%= page.verifier_reports.length %> 份報告</span></summary>
+        <div class="verifier-reports-body">
+          <p class="verifier-reports-note">這是校稿當下的原始意見，文章可能已經修訂。建議是否採納，由作者人工判斷。</p>
+          <% page.verifier_reports.forEach(function(report) { %>
+          <section class="verifier-report">
+            <h2><span><%= report.model %></span><span class="verifier-verdict"><%= report.verdict %></span></h2>
+            <pre class="verifier-findings"><%= report.text %></pre>
+          </section>
+          <% }); %>
+        </div>
+      </details>
+      <% } %>
     </div>
   </div>
 </div>

@@ -55,6 +55,11 @@ def malformed_on(text: str, needle: str) -> list[dict]:
                           "pykakasi": None}}]
 
 
+def verifier_reports_in(post: str) -> list[dict]:
+    line = next(line for line in post.splitlines() if line.startswith("verifier_reports: "))
+    return json.loads(line.split(": ", 1)[1])
+
+
 class FixtureRepo:
     def __init__(self, tmp: Path):
         self.root = tmp
@@ -224,6 +229,32 @@ class HappyPathTest(unittest.TestCase):
             self.assertIn("date: 2026-11-22 03:00:00", final)
             self.assertIn("generated_by: z-ai/glm-5.3@openrouter", final)
             self.assertIn("verified_by: openai/gpt-4o@openrouter", final)
+            reports = verifier_reports_in(final)
+            self.assertEqual(len(reports), 1)
+            self.assertEqual(reports[0]["model"], "openai/gpt-4o")
+            self.assertEqual(reports[0]["verdict"], "PASS")
+            self.assertIn("說明成立條件。", reports[0]["text"])
+            self.assertNotIn("META ", reports[0]["text"])
+
+    def test_verifier_findings_stay_in_metadata_and_leave_spoken_text_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            findings = ('VERDICT: PASS\n\n---\n## 日文文章\n'
+                        '<ruby>惡意<rt>あくい</rt></ruby></pre><script>alert("x")</script>\n'
+                        '引號 " 與反斜線 \\，換行\u2028分隔\u0085符號。')
+            runners.verify = lambda post, model=None: (0, findings + "\nMETA {}", "", None)
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 0)
+            final = runners.posts_seen[-1]
+            draft = runners.posts_seen[0]
+            self.assertTrue(daily_loop.front_matter_valid(final))
+            self.assertEqual(verifier_reports_in(final)[0]["text"],
+                             daily_loop.clean_verifier_output(findings))
+            self.assertEqual(daily_loop.body_of(final), daily_loop.body_of(draft))
+            self.assertEqual(daily_loop.loop_support.extract_spoken(final),
+                             daily_loop.loop_support.extract_spoken(draft))
+            self.assertNotIn("惡意", daily_loop.body_of(final))
 
 
 class NoopTest(unittest.TestCase):
@@ -574,6 +605,7 @@ class FlagTransitionTest(unittest.TestCase):
             self.assertEqual(loop.result, "flag")
             self.assertIn("verifier_flag", loop.reasons)
             self.assertIn("status: flag", runners.posts_seen[-1])
+            self.assertEqual(verifier_reports_in(runners.posts_seen[-1])[0]["verdict"], "FLAG")
 
     def test_tts_fail_flags_with_empty_audio(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -659,6 +691,9 @@ class DualVerifierTest(unittest.TestCase):
             self.assertIn("generated_by: anthropic/claude-opus-5.5@openrouter", final)
             self.assertIn("verified_by: openai/gpt-6.1-sol@openrouter, "
                           "z-ai/glm-5.3@openrouter", final)
+            self.assertEqual([(report["model"], report["verdict"])
+                              for report in verifier_reports_in(final)],
+                             [("openai/gpt-6.1-sol", "PASS"), ("z-ai/glm-5.3", "PASS")])
 
     def test_second_verifier_fail_fails_the_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -710,6 +745,25 @@ class FinalizeRefreezeTest(unittest.TestCase):
             self.assertIn("re-entering finalize once", transcript)
             self.assertEqual(runners.calls.count("gate"), 3)
             self.assertEqual(runners.calls.count("annotate"), 3)
+            final = runners.posts_seen[-1]
+            self.assertEqual(final.count("\nverifier_reports: "), 1)
+            self.assertEqual(len(verifier_reports_in(final)), 1)
+
+    def test_body_mutation_after_verification_still_fails_with_fresh_annotation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FixtureRepo(Path(tmp))
+            runners = FakeRunners()
+            original_tts = runners.tts
+
+            def tts_changes_body(post):
+                post.write_text(post.read_text(encoding="utf-8") + "\n正文遭改動。\n",
+                                encoding="utf-8")
+                return original_tts(post)
+
+            runners.tts = tts_changes_body
+            code, loop, _ = run(repo, runners)
+            self.assertEqual(code, 2)
+            self.assertEqual(loop.reasons, ["body_changed_after_verify"])
 
     def test_final_gate_regression_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -867,7 +921,8 @@ class PostCompositionTest(unittest.TestCase):
         self.assertTrue(out.endswith("body"))
 
     def test_romaji_slug_falls_back_without_pykakasi(self):
-        self.assertEqual(daily_loop.romaji_slug("小さな勝利を祝う"), "post")
+        with unittest.mock.patch.dict(sys.modules, {"pykakasi": None}):
+            self.assertEqual(daily_loop.romaji_slug("小さな勝利を祝う"), "post")
 
 
 class RevisionInvariantTest(unittest.TestCase):
@@ -1115,6 +1170,9 @@ class LivePublishTest(unittest.TestCase):
                 "ls-tree", "--name-only", "main:source/_posts").stdout.split()
             self.assertTrue(any(n.startswith("day-019-") for n in post_names),
                             msg=post_names)
+            published = self.repo.origin_show(
+                "main", "source/_posts/" + next(n for n in post_names if n.startswith("day-019-")))
+            self.assertEqual(verifier_reports_in(published)[0]["verdict"], "PASS")
             ledger_main = [json.loads(l) for l in
                            self.repo.origin_show("main", "data/loop-log.jsonl").splitlines()]
             self.assertEqual(ledger_main[0]["result"], "pass")
@@ -1197,6 +1255,20 @@ class LivePublishTest(unittest.TestCase):
             self.assertIn("VERDICT: PASS", log)
             self.assertIn("說法過絕對", log)
             self.assertNotIn("META {", log.split("## verifier findings")[1])
+            main_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                              "main:source/_posts").stdout.split()
+            self.assertFalse(any(n.startswith("day-019-") for n in main_posts))
+            branch_posts = self.repo.origin_git("ls-tree", "--name-only",
+                                                "loop/day-019:source/_posts").stdout.split()
+            post_name = next(n for n in branch_posts if n.startswith("day-019-"))
+            published = self.repo.origin_show("loop/day-019", "source/_posts/" + post_name)
+            reports = verifier_reports_in(published)
+            self.assertEqual([report["verdict"] for report in reports], ["FLAG", "PASS"])
+            for report in reports:
+                self.assertIn(report["text"], log)
+            annotation = json.loads(self.repo.origin_show(
+                "loop/day-019", "data/annotations/" + Path(post_name).stem + ".json"))
+            self.assertEqual(annotation["post_sha256"], daily_loop.sha256_text(published))
             self.assert_ambient_untouched()
 
     def test_fail_commits_ledger_and_state_only(self):

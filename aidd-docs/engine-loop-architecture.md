@@ -51,6 +51,10 @@ daily-loop 引擎的架構說明，回答核心問題：**手動 loop 上，誰�
 
 三層的結果在 orchestrator 匯合：任何 flag（gate soft reason、`verifier_flag`、`low_confidence`、`tts_failed`…）都讓 `loop.result = "flag"`；只有全綠才是 `"pass"`。
 
+完成的 PASS 與 FLAG 報告以 `VerifierReport(model, verdict, text)` 保存，`verdict` 由 verifier exit code 決定，`text` 保留移除 META line 後的完整原文。同一份資料供 PR body 與 post Frontmatter 的 `verifier_reports` 使用，不增加模型呼叫。未執行或無回應的 lane 沒有報告，報告數不代表整個 run 通過。
+
+`finalize` 將 `verifier_reports` 寫成單行 JSON flow sequence，再重跑 annotate 與 final gate。報告留在 metadata，文章本文 hash 與 TTS 輸入不受影響。`post.ejs` 在文章最後以預設收合的 `<details>` 顯示各模型 verdict 與完整純文字意見，所有模型欄位由 EJS escaping 處理。沒有報告的舊文不顯示區塊。這些紀錄是校稿當時的快照，不代表所有建議均已採納。
+
 ### 4. 誰審批：orchestrator 的 `Publisher` ＋（條件上）人類
 
 「審批」不是單一角色，而是 `Publisher.run`（`daily-loop.py`）依 verdict ＋ veto 決定的三條路：
@@ -70,7 +74,7 @@ flowchart TD
 
 - **PASS 且無 veto**：`Publisher` 在 throwaway worktree（從 fetch 回來的 `origin/main` 開）commit post＋annotation＋ledger，commit author 是 `jasdoit-engine <engine@jasdoit.local>`，用 `LOOP_PAT` push。人類完全不介入。
 - **PASS 但 `AUTO_PUSH_N3 == "false"`**：`daily-loop.py` 的 `veto = loop.env.get("AUTO_PUSH_N3") == "false"` 成立 — ledger 先落地 main，內容 push 到 `loop/day-NNN` branch 並 `gh pr create`。**這是人類審批的入口**：runbook §6.1 明說這是「花 3–5 分鐘看完就 merge」。要恢復自動發布就 `gh variable delete AUTO_PUSH_N3`；**未設或不是字面 `"false"` 都不算 veto**。
-- **FLAG**：自動走同一條 PR 路（PR 標題 `loop: day NNN FLAG`），一樣是人 merge。
+- **FLAG**：自動走同一條 PR 路（PR 標題 `loop: day NNN FLAG`），所有 FLAG 都由人類仲裁後 merge，沒有 AI Arbiter。
 - **FAIL**：只留一筆 `loop: day NNN fail ledger` commit，內容不出去。
 
 ### 5. 誰訂正：分兩種，只有一種是自動的

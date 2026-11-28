@@ -3,7 +3,7 @@
   "schema": 1,
   "post": "day-025-mainichiaukotoba",
   "day": 25,
-  "post_sha256": "89d12fbf39c6e04baa8c344ded72652321a2f69b33112db9eee43cc320b6a42c",
+  "post_sha256": "c69797223528b493c976335e54b63f08e6b5c0e2d21cdedd80758316e734d84b",
   "sources": {
     "python": "3.13.7",
     "fugashi": "1.5.2",

@@ -102,6 +102,12 @@ gh variable set AUTO_PUSH_N3 --body "false"
 
 夠了之後恢復自動發布：`gh variable delete AUTO_PUSH_N3`。未設或不是 `"false"` 時，PASS 直接 push main。
 
+### 6.2 人工仲裁 FLAG 與公開審查紀錄
+
+所有 FLAG 都留在 PR 給人類決定，不增加 AI Arbiter。打開 PR body 的 `## verifier findings`，逐項決定修正或保留，並在 PR 留下理由與發布決定。修改文章後，重跑 annotate 與 gate；若修改日文正文，也要重新產生對應音檔。
+
+文章最末的「AI 校稿紀錄」預設收合，讀者可展開各模型的 verdict 與完整意見。PASS 報告也會保留。這是校稿當時的原始紀錄，文章可能已修訂，不代表作者已採納全部建議。人工決定記在 PR，原始報告留在 Frontmatter `verifier_reports`，不要覆寫成修訂後的判斷。舊文章沒有報告時不顯示區塊。
+
 ## 7. 補賽（backfill）與手動補音（補音不改正文）
 
 - 補賽過去缺文：Actions → Daily loop → Run workflow → `day` 填過去天數、勾 `live`。僅限主題表已填且「該 day 貼文不存在」的日子（存在 → noop，引擎永不改歷史）。

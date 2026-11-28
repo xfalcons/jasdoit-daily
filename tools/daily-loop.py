@@ -41,9 +41,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -601,6 +602,13 @@ def clean_verifier_output(stdout: str) -> str:
 # --- the run ---------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class VerifierReport:
+    model: str
+    verdict: Literal["PASS", "FLAG"]
+    text: str
+
+
 @dataclass
 class Loop:
     repo_root: Path
@@ -613,7 +621,7 @@ class Loop:
     degraded_forced: bool = False
 
     reasons: list = field(default_factory=list)
-    verifier_notes: list = field(default_factory=list)
+    verifier_reports: list[VerifierReport] = field(default_factory=list)
     flagged: bool = False
     stage_reached: str = "noop"
     audio_url: str | None = None
@@ -647,9 +655,10 @@ class Loop:
     def verifier_section(self) -> str:
         # Findings ride the FLAG PR body so review reads them there, not
         # in the Actions transcript.
-        if not self.verifier_notes:
+        if not self.verifier_reports:
             return ""
-        parts = [f"## verifier {model}\n\n{text}" for model, text in self.verifier_notes]
+        parts = [f"## verifier {report.model}\n\n{report.text}"
+                 for report in self.verifier_reports]
         return "\n\n## verifier findings\n\n" + "\n\n".join(parts)
 
     def record(self, ts: str) -> dict:
@@ -755,7 +764,8 @@ class Loop:
             if rc in (0, 3):
                 text = clean_verifier_output(stdout)
                 if text:
-                    self.verifier_notes.append((model, text))
+                    self.verifier_reports.append(
+                        VerifierReport(model, "PASS" if rc == 0 else "FLAG", text))
             if rc == 4:
                 self.flag("verifier_unavailable")
             elif rc == 2:
@@ -805,6 +815,8 @@ class Loop:
                 set_front_matter_fields(self.post.read_text(encoding="utf-8"), {
                     "status": f"status: {status}",
                     "audio_url": f"audio_url: {self.audio_url or ''}",
+                    "verifier_reports": "verifier_reports: " + json.dumps(
+                        [asdict(report) for report in self.verifier_reports], ensure_ascii=True),
                 }),
                 encoding="utf-8",
             )
